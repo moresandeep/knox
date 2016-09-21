@@ -40,6 +40,8 @@ import java.util.Properties;
 import java.util.ServiceLoader;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
+
+import javax.websocket.server.ServerContainer;
 import javax.xml.parsers.ParserConfigurationException;
 import javax.xml.transform.TransformerException;
 
@@ -75,6 +77,7 @@ import org.apache.hadoop.gateway.trace.ErrorHandler;
 import org.apache.hadoop.gateway.trace.TraceHandler;
 import org.apache.hadoop.gateway.util.Urls;
 import org.apache.hadoop.gateway.util.XmlUtils;
+import org.apache.hadoop.gateway.websockets.GatewayWebsocketHandler;
 import org.apache.log4j.PropertyConfigurator;
 import org.eclipse.jetty.server.Connector;
 import org.eclipse.jetty.server.Handler;
@@ -92,6 +95,7 @@ import org.eclipse.jetty.util.ssl.SslContextFactory;
 import org.eclipse.jetty.util.thread.QueuedThreadPool;
 import org.eclipse.jetty.webapp.Configuration;
 import org.eclipse.jetty.webapp.WebAppContext;
+import org.eclipse.jetty.websocket.jsr356.server.deploy.WebSocketServerContainerInitializer;
 import org.jboss.shrinkwrap.api.exporter.ExplodedExporter;
 import org.jboss.shrinkwrap.api.spec.EnterpriseArchive;
 import org.w3c.dom.Document;
@@ -360,14 +364,21 @@ public class GatewayServer {
 
     DefaultTopologyHandler defaultTopoHandler = new DefaultTopologyHandler(
         config, services, contexts);
+    
+    /* KNOX-752 websocket handler that supports websocket connections */
+    GatewayWebsocketHandler websockethandler = new GatewayWebsocketHandler(config, services);    
+    websockethandler.setHandler(gzipHandler);
+    
+    /* KNOX-752 javax.websocket impl of websocket */
+    //ServerContainer wscontainer = WebSocketServerContainerInitializer.configureContext(contexts);
 
     /*
      * Chaining the gzipHandler to correlationHandler. The expected flow here is
      * defaultTopoHandler -> logHandler -> gzipHandler -> correlationHandler ->
-     * traceHandler
+     * traceHandler -> websockethandler 
      */
     handlers.setHandlers(
-        new Handler[] { defaultTopoHandler, logHandler, gzipHandler });
+        new Handler[] { defaultTopoHandler, logHandler, websockethandler });
 
     return handlers;
   }
