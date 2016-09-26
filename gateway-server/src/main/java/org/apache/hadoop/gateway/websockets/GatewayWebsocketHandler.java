@@ -18,12 +18,9 @@
 package org.apache.hadoop.gateway.websockets;
 
 import java.net.URI;
-import java.net.URISyntaxException;
 
 import org.apache.hadoop.gateway.config.GatewayConfig;
 import org.apache.hadoop.gateway.services.GatewayServices;
-import org.eclipse.jetty.websocket.client.ClientUpgradeRequest;
-import org.eclipse.jetty.websocket.client.WebSocketClient;
 import org.eclipse.jetty.websocket.server.WebSocketHandler;
 import org.eclipse.jetty.websocket.servlet.ServletUpgradeRequest;
 import org.eclipse.jetty.websocket.servlet.ServletUpgradeResponse;
@@ -39,14 +36,25 @@ public class GatewayWebsocketHandler extends WebSocketHandler implements WebSock
   /* FIXME naive assumption */
   private static String BACKEND = "ws://localhost:9995/ws";
   
+/* Websocket message configs */
+  
+  public final static int MAX_TEXT_MESSAGE_SIZE =  Integer.MAX_VALUE;
+  
+  public final static int MAX_BINARY_MESSAGE_SIZE =  Integer.MAX_VALUE;
+  
+  public final static int MAX_TEXT_MESSAGE_BUFFER_SIZE =  32768;
+  
+  public final static int MAX_BINARY_MESSAGE_BUFFER_SIZE =  32768;
+  
+  public final static int INPUT_BUFFER_SIZE = 4096;
+  
+  public final static int ASYNC_WRITE_TIMEOUT = 60000;
+  
+  public final static int IDLE_TIMEOUT = 300000;
+  
   final GatewayConfig config;
   final GatewayServices services;
-  
-  // private ProxyGatewaySocket proxySocket = new ProxyGatewaySocket();
-  private ProxySocket proxySocket = new ProxySocket(URI.create(BACKEND));
-  
-
-  
+ 
   
   /**
    * Create an instance
@@ -71,6 +79,16 @@ public class GatewayWebsocketHandler extends WebSocketHandler implements WebSock
   @Override
   public void configure(final WebSocketServletFactory factory) {
     factory.setCreator(this);
+    factory.getPolicy().setMaxTextMessageSize(MAX_TEXT_MESSAGE_SIZE);
+    factory.getPolicy().setMaxBinaryMessageSize(MAX_TEXT_MESSAGE_SIZE);
+    
+    factory.getPolicy().setMaxBinaryMessageBufferSize(MAX_BINARY_MESSAGE_BUFFER_SIZE);
+    factory.getPolicy().setMaxTextMessageBufferSize(MAX_TEXT_MESSAGE_BUFFER_SIZE);
+    
+    factory.getPolicy().setInputBufferSize(INPUT_BUFFER_SIZE);
+    
+    factory.getPolicy().setAsyncWriteTimeout(ASYNC_WRITE_TIMEOUT);
+    factory.getPolicy().setIdleTimeout(IDLE_TIMEOUT);
 
   }
 
@@ -80,43 +98,9 @@ public class GatewayWebsocketHandler extends WebSocketHandler implements WebSock
   @Override
   public Object createWebSocket(ServletUpgradeRequest req,
       ServletUpgradeResponse resp) {
-    /* Let's send a server upgrade request to the backend */
-    /*ClientUpgradeRequest upgrade = new ClientUpgradeRequest();
-    GatewayWebsocketClient clientSocket = new GatewayWebsocketClient();
-    final WebSocketClient client = new WebSocketClient();
     
-    try {
-      
-      client.start();
-      
-
-      client.getPolicy().setIdleTimeout(10000);
-
-      URI backendURI = new URI(backend);
-      
-      upgrade.setSubProtocols(req.getSubProtocols());
-      
-      //ExtensionConfig[] extConfigs = req.getExtensions().toArray(new ExtensionConfig[0]);      
-      //upgrade.addExtensions(extConfigs);
-      
-      // FIXME set other props too
-      client.connect(clientSocket, backendURI, upgrade);
-
-    } catch (URISyntaxException e1) {
-      // TODO Auto-generated catch block
-      e1.printStackTrace();
-    } catch (Exception e) {      
-      // TODO perhaps some logging here 
-      throw new RuntimeException(e);
-    } 
-    
-    // so far so good 
-    proxySocket.setClientSocket(clientSocket);
-    proxySocket.setClient(client);
-    clientSocket.setProxySocket(proxySocket);
-    */
-    
-    return proxySocket;
+    /* Upgrade happens here */
+    return new ProxySocket(URI.create(BACKEND));
   }
 
 }

@@ -20,15 +20,10 @@ package org.apache.hadoop.gateway.websockets;
 import java.io.IOException;
 import java.net.URI;
 
-import javax.websocket.ClientEndpoint;
-import javax.websocket.CloseReason;
+import javax.websocket.ClientEndpointConfig;
 import javax.websocket.ContainerProvider;
 import javax.websocket.DeploymentException;
 import javax.websocket.MessageHandler;
-import javax.websocket.OnClose;
-import javax.websocket.OnError;
-import javax.websocket.OnMessage;
-import javax.websocket.OnOpen;
 import javax.websocket.WebSocketContainer;
 
 import org.eclipse.jetty.io.RuntimeIOException;
@@ -43,17 +38,17 @@ import org.eclipse.jetty.websocket.api.WebSocketAdapter;
  *
  */
 public class ProxySocket extends WebSocketAdapter {
-
+  
   /* URI for the backend */
-  final URI backend;
+  private final URI backend;
 
   /* Session between the frontend (browser) and Knox */
-  Session frontendSession;
+  private Session frontendSession;
 
   /* Session between the backend (Zeppelin) and Knox */
-  javax.websocket.Session backendSession;
+  private javax.websocket.Session backendSession;
 
-  WebSocketContainer container;
+  private WebSocketContainer container;
 
   /**
    * Create an instance
@@ -64,24 +59,30 @@ public class ProxySocket extends WebSocketAdapter {
   }
 
   @Override
-  public void onWebSocketConnect(Session frontEndSession) {
+  public void onWebSocketConnect(final Session frontEndSession) {
     super.onWebSocketConnect(frontEndSession);
     this.frontendSession = frontEndSession;
 
     System.out.println("Websocket connection established ..");
 
-    /* Let's connect to the backend, this is where the Backend-to-frontend plumbing takes place */
+    /*
+     * Let's connect to the backend, this is where the Backend-to-frontend
+     * plumbing takes place
+     */
     container = ContainerProvider.getWebSocketContainer();
-    final ProxyClientSocket backendSocket = new ProxyClientSocket(getRemote());
-    
+    final ProxyClientSocket backendSocket = new ProxyClientSocket(
+        getMessageCallback());
+
+    /* build the configuration */
+
     // Attempt Connect
     try {
-      backendSession = container.connectToServer(backendSocket,
-          backend);
+      backendSession = container.connectToServer(backendSocket, backend);
 
-      //backendSession.addMessageHandler(new WholeMessageCaptureHandler(getRemote()));
-      //backendSession.addMessageHandler(new PartialMessageCaptureHandler(getRemote()));
-      
+      // backendSession.addMessageHandler(new
+      // WholeMessageCaptureHandler(getRemote()));
+      // backendSession.addMessageHandler(new
+      // PartialMessageCaptureHandler(getRemote()));
 
     } catch (DeploymentException e) {
       // TODO Auto-generated catch block
@@ -113,7 +114,7 @@ public class ProxySocket extends WebSocketAdapter {
 
     System.out.println("Incoming message : " + message);
 
-    /* Proxy frontend message to backend */
+    /* Proxy message to backend */
     try {
       backendSession.getBasicRemote().sendText(message);
     } catch (IOException e) {
@@ -141,6 +142,63 @@ public class ProxySocket extends WebSocketAdapter {
     closeQuietly();
   }
 
+  private MessageEventCallback getMessageCallback() {
+
+    return new MessageEventCallback() {
+
+      @Override
+      public void doCallback(String message) {
+        // TODO Auto-generated method stub
+
+      }
+
+      @Override
+      public void onConnectionOpen(Object session) {
+        // TODO Auto-generated method stub
+
+      }
+
+      @Override
+      public void onConnectionClose(String reason) {
+        // FIXME LOG
+        closeQuietly();
+
+      }
+
+      @Override
+      public void onError(Throwable cause) {
+        // FIXME LOG
+        closeQuietly();
+
+      }
+
+      @Override
+      public void onMessageText(String message, Object session) {
+        final RemoteEndpoint remote = getRemote();
+        /* Proxy message to frontend */
+        try {
+          remote.sendString(message);
+          if (remote.getBatchMode() == BatchMode.ON) {
+            remote.flush();
+          }
+        } catch (IOException e) {
+          // TODO Auto-generated catch block
+          throw new RuntimeIOException(e);
+        }
+
+      }
+
+      @Override
+      public void onMessageBinary(byte[] message, boolean last,
+          Object session) {
+        // TODO Auto-generated method stub
+
+      }
+
+    };
+
+  }
+
   private void closeQuietly() {
 
     try {
@@ -158,83 +216,6 @@ public class ProxySocket extends WebSocketAdapter {
     }
 
     frontendSession.close();
-
-  }
-
-  /**
-   * Whole message handler for receiving and proxing messages received from
-   * backend to Knox
-   */
-  public class WholeMessageCaptureHandler
-      implements MessageHandler.Whole<String> {
-
-    final RemoteEndpoint remote;
-
-    public WholeMessageCaptureHandler(final RemoteEndpoint remote) {
-      super();
-      this.remote = remote;
-    }
-
-    /*
-     * (non-Javadoc)
-     * 
-     * @see javax.websocket.MessageHandler.Whole#onMessage(java.lang.Object)
-     */
-    @Override
-    public void onMessage(String message) {
-
-      System.out.println("Message Recieved from Backend " + message);
-      /* Just Proxying stuff */
-      try {
-        remote.sendString(message);
-        if (remote.getBatchMode() == BatchMode.ON) {
-          remote.flush();
-        }
-      } catch (IOException e) {
-        // TODO Auto-generated catch block
-        throw new RuntimeIOException(e);
-      }
-
-    }
-
-  }
-  
-  /**
-   * Whole message handler for receiving and proxing messages received from
-   * backend to Knox
-   */
-  public class PartialMessageCaptureHandler
-      implements MessageHandler.Partial<String> {
-
-    final RemoteEndpoint remote;
-
-    public PartialMessageCaptureHandler(final RemoteEndpoint remote) {
-      super();
-      this.remote = remote;
-    }
-
-    /*
-     * (non-Javadoc)
-     * 
-     * @see javax.websocket.MessageHandler.Whole#onMessage(java.lang.Object)
-     */
-    @Override
-    public void onMessage(String message, boolean last) {
-
-      System.out.println("Message Recieved from Backend " + message);
-      /* Just Proxying stuff */
-      try {
-        remote.sendString(message);
-        if (remote.getBatchMode() == BatchMode.ON) {
-          remote.flush();
-        }
-      } catch (IOException e) {
-        // TODO Auto-generated catch block
-        throw new RuntimeIOException(e);
-      }
-
-    }
-
 
   }
 

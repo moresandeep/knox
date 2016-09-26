@@ -17,8 +17,6 @@
  */
 package org.apache.hadoop.gateway.websockets;
 
-import java.io.IOException;
-
 import javax.websocket.ClientEndpoint;
 import javax.websocket.CloseReason;
 import javax.websocket.OnClose;
@@ -26,66 +24,65 @@ import javax.websocket.OnError;
 import javax.websocket.OnMessage;
 import javax.websocket.OnOpen;
 
-import org.eclipse.jetty.io.RuntimeIOException;
-import org.eclipse.jetty.websocket.api.BatchMode;
-import org.eclipse.jetty.websocket.api.RemoteEndpoint;
-
 /**
- * A websocket client
+ * A Websocket client with callback.
  *
  */
 @ClientEndpoint
 public class ProxyClientSocket {
 
   /**
-   * Frontend endpoint to stream the data back.
+   * Callback to be called once we have events on our socket.
    */
-  final RemoteEndpoint remote;
-  
+  final MessageEventCallback callback;
+
   /**
-    * Create an instance
-    */
-    public ProxyClientSocket(final RemoteEndpoint remote) {
-      super();
-      this.remote = remote;
-    }
-    
-    /* Client methods */
-    @OnOpen
-    public void onClientOpen(final javax.websocket.Session backendSession) {
-      // this.backendSession = backendSession;
+   * Create an instance
+   */
+  public ProxyClientSocket(final MessageEventCallback callback) {
+    super();
+    this.callback = callback;
+  }
 
-      System.out.println("Opened a client connection with Zeppelin backend");
+  /* Client methods */
+  @OnOpen
+  public void onClientOpen(final javax.websocket.Session backendSession) {
+    System.out.println("Opened a client connection with Zeppelin backend");
 
-    }
+    callback.onConnectionOpen(backendSession);
 
-    @OnClose
-    public void onClientClose(final CloseReason reason) {
-      System.out.println(
-          "Closed client connection with Zeppelin backend reason: " + reason);
-    }
+  }
 
-    @OnError
-    public void onClientError(Throwable cause) {
-      cause.printStackTrace(System.err);
-    }
+  @OnClose
+  public void onClientClose(final CloseReason reason) {
+    System.out.println(
+        "Closed client connection with Zeppelin backend reason: " + reason);
 
-    @OnMessage
-    public void onBackendMessage(final String message, final javax.websocket.Session session) {
-      System.out.println("$$$ Message came from the backend server ! " + message);
-      
-      /* Proxy message to frontend */
-      try {
-        remote.sendString(message);
-        if (remote.getBatchMode() == BatchMode.ON) {
-          remote.flush();
-        }
-      } catch (IOException e) {
-        // TODO Auto-generated catch block
-        throw new RuntimeIOException(e);
-      }
+    callback.onConnectionClose(reason.getReasonPhrase());
+  }
 
-      
-    }
+  @OnError
+  public void onClientError(Throwable cause) {
+    cause.printStackTrace(System.err);
+
+    callback.onError(cause);
+  }
+
+  @OnMessage(maxMessageSize = GatewayWebsocketHandler.MAX_TEXT_MESSAGE_SIZE)
+  public void onBackendMessage(final String message,
+      final javax.websocket.Session session) {
+    System.out.println("$$$ Message came from the backend server ! " + message);
+
+    callback.onMessageText(message, session);
+
+  }
+
+  @OnMessage(maxMessageSize = GatewayWebsocketHandler.MAX_TEXT_MESSAGE_SIZE)
+  public void onBackendMessageBinary(final byte[] message, final boolean last,
+      final javax.websocket.Session session) {
+
+    callback.onMessageBinary(message, last, session);
+
+  }
 
 }
