@@ -132,15 +132,5 @@
         <role>RESOURCEMANAGER</role>
         <url>http://localhost:8088/ws</url>
     </service>
-    
-    <!-- Zeppelin UI -->
-    <service>
-        <role>ZEPPELINWS</role>
-        <url>ws://localhost:9995</url>
-    </service>
-    <service>
-        <role>ZEPPELINUI</role>
-        <url>http://localhost:9995</url>
-    </service>
 
 </topology>
