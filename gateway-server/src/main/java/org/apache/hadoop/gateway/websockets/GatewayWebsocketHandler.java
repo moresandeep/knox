@@ -19,6 +19,7 @@ package org.apache.hadoop.gateway.websockets;
 
 import java.net.URI;
 
+import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.gateway.config.GatewayConfig;
 import org.apache.hadoop.gateway.services.GatewayServices;
 import org.eclipse.jetty.websocket.server.WebSocketHandler;
@@ -34,7 +35,8 @@ import org.eclipse.jetty.websocket.servlet.WebSocketServletFactory;
 public class GatewayWebsocketHandler extends WebSocketHandler implements WebSocketCreator {
 
   /* FIXME naive assumption */
-  private static String BACKEND = "ws://localhost:9995/ws";
+  private static String BACKEND = "backend";
+  private static String LOCAL = "localhost";
   
 /* Websocket message configs */
   
@@ -52,6 +54,8 @@ public class GatewayWebsocketHandler extends WebSocketHandler implements WebSock
   
   public final static int IDLE_TIMEOUT = 300000;
   
+  final String backendUrl;
+      
   final GatewayConfig config;
   final GatewayServices services;
  
@@ -66,6 +70,14 @@ public class GatewayWebsocketHandler extends WebSocketHandler implements WebSock
     
     this.config = config;
     this.services = services;
+    
+    if(!StringUtils.isBlank(System.getProperty(BACKEND)))
+    {
+      backendUrl = System.getProperty(BACKEND);
+    }
+    else {
+      backendUrl = "ws://"+LOCAL+":9995/ws" ;
+    }
     
   }
   
@@ -99,8 +111,10 @@ public class GatewayWebsocketHandler extends WebSocketHandler implements WebSock
   public Object createWebSocket(ServletUpgradeRequest req,
       ServletUpgradeResponse resp) {
     
+    
+    
     /* Upgrade happens here */
-    return new ProxySocket(URI.create(BACKEND));
+    return new ProxySocket(URI.create(backendUrl));
   }
 
 }
