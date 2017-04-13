@@ -50,6 +50,7 @@ import net.lingala.zip4j.exception.ZipException;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.ParseException;
 import org.apache.commons.io.FileUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.gateway.audit.api.Action;
 import org.apache.hadoop.gateway.audit.api.ActionOutcome;
 import org.apache.hadoop.gateway.audit.api.AuditServiceFactory;
@@ -108,6 +109,8 @@ public class GatewayServer {
   private static final GatewayMessages log = MessagesFactory.get(GatewayMessages.class);
   private static final Auditor auditor = AuditServiceFactory.getAuditService().getAuditor(AuditConstants.DEFAULT_AUDITOR_NAME,
       AuditConstants.KNOX_SERVICE_NAME, AuditConstants.KNOX_COMPONENT_NAME);
+  private static final String DEFAULT_CONNECTOR_NAME = "default";
+
   private static GatewayServer server;
   private static GatewayServices services;
 
@@ -119,6 +122,11 @@ public class GatewayServer {
   private TopologyService monitor;
   private TopologyListener listener;
   private Map<String, WebAppContext> deployments;
+
+  /**
+   * Map of WebAppContext that are deployed for different ports
+   */
+  private Map<String, WebAppContext> defaultDeployments;
 
   public static void main( String[] args ) {
     try {
@@ -309,12 +317,27 @@ public class GatewayServer {
       this.listener = new InternalTopologyListener();
   }
 
-  private static Connector createConnector( final Server server, final GatewayConfig config ) throws IOException, CertificateException, NoSuchAlgorithmException, KeyStoreException {
+  /**
+   * Create a connector for Gateway Server to listen on.
+   *
+   * @param server Jetty server
+   * @param config GatewayConfig
+   * @param port   If value is > 0 then the given value is used else we use the port provided in GatewayConfig.
+   * @param connectorName Connector name, only used when not null
+   * @return
+   * @throws IOException
+   * @throws CertificateException
+   * @throws NoSuchAlgorithmException
+   * @throws KeyStoreException
+   */
+  private static Connector createConnector( final Server server, final GatewayConfig config, final int port, final String connectorName ) throws IOException, CertificateException, NoSuchAlgorithmException, KeyStoreException {
     ServerConnector connector;
 
     // Determine the socket address and check availability.
     InetSocketAddress address = config.getGatewayAddress();
     checkAddressAvailability( address );
+
+    final int connectorPort = port > 0 ? port : address.getPort();
 
     HttpConfiguration httpConfig = new HttpConfiguration();
     httpConfig.setRequestHeaderSize( config.getHttpServerRequestHeaderBuffer() );
@@ -325,7 +348,7 @@ public class GatewayServer {
     if (config.isSSLEnabled()) {
       HttpConfiguration httpsConfig = new HttpConfiguration( httpConfig );
       httpsConfig.setSecureScheme( "https" );
-      httpsConfig.setSecurePort( address.getPort() );
+      httpsConfig.setSecurePort( connectorPort );
       httpsConfig.addCustomizer( new SecureRequestCustomizer() );
       SSLService ssl = services.getService("SSLService");
       String keystoreFileName = config.getGatewaySecurityDir() + File.separatorChar + "keystores" + File.separatorChar + "gateway.jks";
@@ -335,7 +358,14 @@ public class GatewayServer {
       connector = new ServerConnector( server );
     }
     connector.setHost( address.getHostName() );
-    connector.setPort( address.getPort() );
+    connector.setPort( connectorPort );
+
+    if(!StringUtils.isBlank(connectorName)) {
+      connector.setName(connectorName);
+    } else {
+      connector.setName(DEFAULT_CONNECTOR_NAME);
+    }
+
     long idleTimeout = config.getGatewayIdleTimeout();
     if (idleTimeout > 0l) {
       connector.setIdleTimeout(idleTimeout);
@@ -400,12 +430,16 @@ public class GatewayServer {
   private synchronized void start() throws Exception {
     // Create the global context handler.
     contexts = new ContextHandlerCollection();
+
      // A map to keep track of current deployments by cluster name.
     deployments = new ConcurrentHashMap<String, WebAppContext>();
 
+    /* A map to keep track of deployments that are on a seperate connectors */
+    defaultDeployments = new ConcurrentHashMap<String, WebAppContext>();
+
     // Start Jetty.
     jetty = new Server( new QueuedThreadPool( config.getThreadPoolMax() ) );
-    jetty.addConnector( createConnector( jetty, config ) );
+    jetty.addConnector( createConnector( jetty, config, 0, null) );
     jetty.setHandler( createHandlers( config, services, contexts ) );
 
     // Add Annotations processing into the Jetty server to support JSPs
@@ -420,6 +454,17 @@ public class GatewayServer {
     monitor = services.getService(GatewayServices.TOPOLOGY_SERVICE);
     monitor.addTopologyChangeListener(listener);
     monitor.reloadTopologies();
+
+    /* Check whether a topology wants dedicated port */
+    Collection<Topology> topologies = monitor.getTopologies();
+
+    /* Add new connectors */
+    for (final Topology t : topologies) {
+      //FIXME: Check for port name and flag here, for now we'll do this for sandbox
+      if (t.getName().equalsIgnoreCase("sandbox")) {
+        jetty.addConnector(createConnector(jetty, config, 9443, t.getName().toLowerCase()));
+      }
+    }
 
     try {
       jetty.start();
@@ -487,6 +532,16 @@ public class GatewayServer {
     context.setTempDirectory( FileUtils.getFile( warFile, "META-INF", "temp" ) );
     context.setErrorHandler( createErrorHandler() );
     context.setInitParameter("org.eclipse.jetty.servlet.Default.dirAllowed", "false");
+
+    /* Configure the app to listen on a seperate port - configured as connector */
+    //context.setVirtualHosts(new String[]{"@"+DEFAULT_CONNECTOR_NAME, "@"+topoName});
+
+    //FIXME: Check for the valid port property here
+    if(topoName.equalsIgnoreCase("sandbox")) {
+
+
+    }
+
     return context;
   }
 
@@ -576,6 +631,13 @@ public class GatewayServer {
     log.activatingTopologyArchive( topology.getName(), warDir.getName() );
     try {
       WebAppContext newContext = createWebAppContext( topology, warDir, Urls.decode( warDir.getName() ) );
+      /* Configure the app to listen on a seperate port - configured as connector */
+      //newContext.setVirtualHosts(new String[]{"@"+DEFAULT_CONNECTOR_NAME});
+
+      if(topology.getName().equalsIgnoreCase("sandbox")) {
+        newContext.setVirtualHosts(new String[]{"@"+DEFAULT_CONNECTOR_NAME, "@"+topology.getName()});
+      }
+
       WebAppContext oldContext = deployments.get( newContext.getContextPath() );
       deployments.put( newContext.getContextPath(), newContext );
       if( oldContext != null ) {
@@ -585,11 +647,35 @@ public class GatewayServer {
       if( contexts.isRunning() && !newContext.isRunning() ) {
           newContext.start();
       }
+
+      //FIXME
+      /*
+      if(topology.getName().equalsIgnoreCase("sandbox")) {
+        //defaultDeployments.
+        WebAppContext newCtx = createWebAppContext( topology, warDir, Urls.decode( warDir.getName() ) );
+        // Configure the app to listen on a seperate port - configured as connector
+        newContext.setVirtualHosts(new String[]{"@"+topology.getName()});
+        newCtx.setContextPath("/");
+        WebAppContext oldCtx = defaultDeployments.get( newCtx.getWar() );
+
+        defaultDeployments.put( newCtx.getWar(), newCtx );
+        if( oldCtx != null ) {
+          contexts.removeHandler( newCtx );
+        }
+        contexts.addHandler( newCtx );
+        if( contexts.isRunning() && !newCtx.isRunning() ) {
+          newCtx.start();
+        }
+
+      }
+      */
+
     } catch( Exception e ) {
       auditor.audit( Action.DEPLOY, topology.getName(), ResourceType.TOPOLOGY, ActionOutcome.FAILURE );
       log.failedToDeployTopology( topology.getName(), e );
     }
   }
+
 
   private synchronized void internalDeactivateTopology( Topology topology ) {
 
@@ -614,6 +700,17 @@ public class GatewayServer {
         }
       }
     }
+
+    // FIXME: How to deactivate deployments on a seperate ports
+    /*
+    if(defaultDeployments != null) {
+      for( WebAppContext app : defaultDeployments.values() ) {
+        final String warLocation = app.getWar();
+        deactivate.add( app );
+      }
+    }
+    */
+
     // Deactivate the required deployed contexts.
     for( WebAppContext context : deactivate ) {
       String contextPath = context.getContextPath();
