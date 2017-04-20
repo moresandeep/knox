@@ -433,4 +433,10 @@ public interface GatewayMessages {
 
   @Message( level = MessageLevel.DEBUG, text = "Failed to stop metrics reporter {0}  : {1}" )
   void failedToStopReporter( String name,  @StackTrace( level = MessageLevel.DEBUG ) Exception e);
+
+  @Message( level = MessageLevel.INFO, text = "Redirect handler {0} at {1}" )
+  void redirectHandlerSetup( String defaultTopologyName, String redirectContext );
+
+  @Message( level = MessageLevel.DEBUG, text = "Redirect handler forward from {0} to {1}" )
+  void redirectHandlerForward( String oldTarget, String newTarget );
 }
