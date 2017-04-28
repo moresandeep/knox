@@ -23,8 +23,7 @@ import org.apache.hadoop.gateway.GatewayMessages;
 import org.apache.hadoop.gateway.config.GatewayConfig;
 import org.apache.hadoop.gateway.i18n.messages.MessagesFactory;
 import org.apache.hadoop.gateway.services.GatewayServices;
-import org.apache.hadoop.gateway.topology.Topology;
-import org.eclipse.jetty.server.HttpConnection;
+import org.eclipse.jetty.http.HttpURI;
 import org.eclipse.jetty.server.Request;
 import org.eclipse.jetty.server.handler.ScopedHandler;
 
@@ -35,30 +34,24 @@ import javax.servlet.http.HttpServletResponse;
 import java.io.IOException;
 
 /**
- * This handler will be ONLY registered with a specific connector, listening on a port that
+ * This handler will be ONLY registered with a specific connector listening on a port that
  * is configured through a property gateway.port.mapping.{topologyName} in gateway-site.xml
  * <p>
- * The function of this connector is to append the right context path (/({gateway}/{topology}) and forward the request
+ * The function of this connector is to append the right context path and forward the request
  * to the default port.
  * <p>
- * See KNOX-
+ * See KNOX-928
  *
  * @since 0.13
  */
-
-public class ForwardHandler extends ScopedHandler {
+public class RequestForwardHandler extends ScopedHandler {
 
     private static final GatewayMessages LOG = MessagesFactory.get(GatewayMessages.class);
 
-    private GatewayConfig config;
-    private GatewayServices services;
-    private Topology topology;
-
     private String redirectContext = null;
-    private final int redirectPort;
 
-    public ForwardHandler(final GatewayConfig config, final Topology topology, final GatewayServices services) {
 
+    public RequestForwardHandler(final GatewayConfig config, final String topologyName, final GatewayServices services) {
         super();
 
         if (config == null) {
@@ -67,37 +60,30 @@ public class ForwardHandler extends ScopedHandler {
         if (services == null) {
             throw new IllegalArgumentException("services==null");
         }
-        if (topology == null) {
-            throw new IllegalArgumentException("topology==null");
+        if (topologyName == null) {
+            throw new IllegalArgumentException("topologyName==null");
         }
-        this.config = config;
-        this.services = services;
-        this.topology = topology;
 
-        this.redirectPort = config.getGatewayPort();
-
-        redirectContext = "/" + config.getGatewayPath() + "/" + topology.getName();
+        redirectContext = "/" + config.getGatewayPath() + "/" + topologyName;
 
     }
+
 
     @Override
     public void doScope(String target, Request baseRequest, HttpServletRequest request, HttpServletResponse response) throws IOException, ServletException {
 
         final String newTarget = redirectContext + target;
 
-        RedirectHandlerNew.ForwardedRequest newRequest = new RedirectHandlerNew.ForwardedRequest(request, redirectContext, newTarget);
+        RequestForwardHandler.ForwardedRequest newRequest = new RequestForwardHandler.ForwardedRequest(request, redirectContext, newTarget);
         LOG.redirectHandlerForward(target, newTarget);
 
         /* if the request starts already has the /gateway/{topology} part then skip it */
-        if(StringUtils.startsWithIgnoreCase(target, redirectContext)) {
-            nextScope(target, baseRequest, newRequest, response);
-        }
-        else {
+        if(!StringUtils.startsWithIgnoreCase(target, redirectContext)) {
             nextScope(newTarget, baseRequest, newRequest, response);
         }
-
-        //request.getRequestDispatcher(newTarget).forward(request, response);
-
+        else {
+            nextScope(target, baseRequest, newRequest, response);
+        }
 
     }
 
@@ -107,60 +93,24 @@ public class ForwardHandler extends ScopedHandler {
 
         final String newTarget = redirectContext + target;
 
-        final String uri = request.getScheme() + "://" + request.getServerName() + ":" + this.redirectPort + redirectContext +
-                request.getRequestURI() +
-                (request.getQueryString() != null ? "?" + request.getQueryString() : "");
+        RequestForwardHandler.ForwardedRequest newRequest = new RequestForwardHandler.ForwardedRequest(request, redirectContext, newTarget);
 
-        RedirectHandlerNew.ForwardedRequest newRequest = new RedirectHandlerNew.ForwardedRequest(request, redirectContext, uri);
         LOG.redirectHandlerForward(target, newTarget);
 
         /* if the request starts already has the /gateway/{topology} part then skip it */
-        if(StringUtils.startsWithIgnoreCase(target, redirectContext)) {
-            request.getRequestDispatcher(target).include(request, response);
+        if(!StringUtils.startsWithIgnoreCase(target, redirectContext)) {
+            baseRequest.setPathInfo(redirectContext+baseRequest.getPathInfo());
+            baseRequest.setUri(new HttpURI(redirectContext + baseRequest.getUri().toString()));
+
+            nextHandle(newTarget, baseRequest, newRequest, response);
         }
         else {
-            request.getRequestDispatcher(newTarget).include(request, response);
+            baseRequest.setPathInfo(redirectContext+baseRequest.getPathInfo());
+            baseRequest.setUri(new HttpURI(redirectContext + baseRequest.getUri().toString()));
+
+            nextHandle(target, baseRequest, newRequest, response);
         }
 
-        //request.getRequestDispatcher(newTarget).forward(request, response);
-        //request.getRequestDispatcher(newTarget).include(request, response);
-
-        //request.getRequestDispatcher(target).include(request, response);
-
-        Request base_request = (request instanceof Request) ? (Request)request: HttpConnection.getCurrentConnection().getHttpChannel().getRequest();
-        base_request.setHandled(true);
-
-        //nextHandle(newTarget, baseRequest, newRequest, response );
-
-
-        //nextHandle(target, baseRequest, request, response);
-
-        /*
-        if (!baseRequest.isHandled()) {
-
-
-            //final String uri = request.getScheme() + "://" + request.getServerName() + ":" + this.redirectPort + redirectContext +
-                    request.getRequestURI() +
-                    (request.getQueryString() != null ? "?" + request.getQueryString() : "");
-
-            //LOG.redirectHandlerForward(target, uri);
-
-            //response.sendRedirect(uri);
-
-
-
-
-            final String newTarget = redirectContext + target;
-            RedirectHandler.ForwardedRequest newRequest = new RedirectHandler.ForwardedRequest(request, newTarget);
-            LOG.redirectHandlerForward(target, newTarget);
-
-            //request.getRequestDispatcher(newTarget).forward(request, response);
-
-            //super.handle(newTarget, baseRequest, newRequest, response);
-
-            super.handle(target, baseRequest, request, response);
-        }
-        */
     }
 
     static class ForwardedRequest extends HttpServletRequestWrapper {
@@ -176,7 +126,6 @@ public class ForwardHandler extends ScopedHandler {
 
         @Override
         public StringBuffer getRequestURL() {
-            final StringBuffer originalUrl = ((HttpServletRequest) getRequest()).getRequestURL();
             return new StringBuffer(newURL);
         }
 
