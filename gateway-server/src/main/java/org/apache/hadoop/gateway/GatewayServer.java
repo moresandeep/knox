@@ -400,9 +400,9 @@ public class GatewayServer {
     gzipHandler.addIncludedMimeTypes(mimeTypes);
     gzipHandler.setHandler(correlationHandler);
 
-    /* Used to corect the {target} part of request with Topology Port Mapping feature */
-    PortMappingHelperHandler portMappinghandler = new PortMappingHelperHandler();
-    portMappinghandler.setHandler(gzipHandler);
+    /* Used to correct the {target} part of request with Topology Port Mapping feature */
+    final PortMappingHelperHandler portMappingHandler = new PortMappingHelperHandler(config);
+    portMappingHandler.setHandler(gzipHandler);
 
     DefaultTopologyHandler defaultTopoHandler = new DefaultTopologyHandler(
         config, services, contexts);
@@ -417,46 +417,30 @@ public class GatewayServer {
 
       for (Map.Entry<String, Integer> entry : topologyPortMap.entrySet()) {
 
-        final ContextHandler topologycontextHandler = new ContextHandler();
+        final ContextHandler topologyContextHandler = new ContextHandler();
 
         final RequestForwardHandler redirectHandler = new RequestForwardHandler(config, entry.getKey(), services);
-        //redirectHandler.setHandler(gzipHandler);
 
-        topologycontextHandler.setHandler(redirectHandler);
-        topologycontextHandler.setVirtualHosts(new String[]{"@" + entry.getKey().toLowerCase()});
+        topologyContextHandler.setHandler(redirectHandler);
+        topologyContextHandler.setVirtualHosts(new String[]{"@" + entry.getKey().toLowerCase()});
 
-        handlers.addHandler(topologycontextHandler);
+        handlers.addHandler(topologyContextHandler);
       }
 
     }
-
 
     handlers.addHandler(defaultTopoHandler);
     handlers.addHandler(logHandler);
 
     if (config.isWebsocketEnabled()) {      
-      GatewayWebsocketHandler websockethandler = new GatewayWebsocketHandler(
+      GatewayWebsocketHandler websocketHandler = new GatewayWebsocketHandler(
           config, services);
-      websockethandler.setHandler(portMappinghandler);
-      //websockethandler.setHandler(gzipHandler);
+      websocketHandler.setHandler(portMappingHandler);
 
-      /*
-       * Chaining the gzipHandler to correlationHandler. The expected flow here
-       * is defaultTopoHandler -> logHandler -> gzipHandler ->
-       * correlationHandler -> traceHandler -> websockethandler
-       */
-
-      handlers.addHandler(websockethandler);
+      handlers.addHandler(websocketHandler);
 
     } else {
-      /*
-       * Chaining the gzipHandler to correlationHandler. The expected flow here
-       * is defaultTopoHandler -> logHandler -> gzipHandler ->
-       * correlationHandler -> traceHandler
-       */
-
-      handlers.addHandler(portMappinghandler);
-      //handlers.addHandler(gzipHandler);
+      handlers.addHandler(portMappingHandler);
     }
 
     return handlers;
@@ -506,8 +490,6 @@ public class GatewayServer {
 
 
     jetty.setHandler(handlers);
-
-    Handler[] hans = jetty.getHandlers();
 
     try {
       jetty.start();
