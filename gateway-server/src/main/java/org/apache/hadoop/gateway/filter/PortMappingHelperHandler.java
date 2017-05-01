@@ -1,6 +1,7 @@
 package org.apache.hadoop.gateway.filter;
 
 import org.apache.commons.lang.StringUtils;
+import org.apache.hadoop.gateway.config.GatewayConfig;
 import org.eclipse.jetty.server.Request;
 import org.eclipse.jetty.server.handler.HandlerWrapper;
 
@@ -28,55 +29,54 @@ import java.io.IOException;
  */
 
 /**
- * This is a helper handler that adjustss the "target" patch of the request.
+ * This is a helper handler that adjusts the "target" patch of the request.
  * Used when Topology Port Mapping feature is used.
  * See KNOX-928
+ *
  * @since 0.13
  */
 public class PortMappingHelperHandler extends HandlerWrapper {
 
-    public PortMappingHelperHandler() {
+  final GatewayConfig config;
 
+  public PortMappingHelperHandler(final GatewayConfig config) {
+
+    this.config = config;
+  }
+
+  @Override public void handle(final String target, final Request baseRequest,
+      final HttpServletRequest request, final HttpServletResponse response)
+      throws IOException, ServletException {
+
+    /* If Port Mapping feature enabled */
+    if (config.isGatewayPortMappingEnabled()) {
+      String context = "";
+      String baseURI = baseRequest.getUri().toString();
+
+      /* extract the gateway specific part i.e. {/gatewayName/} */
+      String contextPath = "";
+      int targetIndex = StringUtils.ordinalIndexOf(target, "/", 2);
+
+      /* Match found e.g. /{string}/ */
+      if (targetIndex > 0) {
+        contextPath = target.substring(0, targetIndex + 1);
+      }
+
+      /* e.g. context = /{gatewayName}/{topologyname} */
+      //if (!StringUtils.isBlank(contextPath) && !baseURI
+       //   .startsWith(contextPath)) {
+
+      if (!baseURI.startsWith(contextPath) || target.equals("/")) {
+        final int index = StringUtils.ordinalIndexOf(baseURI, "/", 3);
+        if (index > 0) {
+          context = baseURI.substring(0, index);
+        }
+      }
+
+      super.handle(context + target, baseRequest, request, response);
+    } else {
+      super.handle(target, baseRequest, request, response);
     }
 
-    @Override
-    public void handle(final String target, final Request baseRequest, final HttpServletRequest request, final HttpServletResponse response ) throws IOException, ServletException {
-
-        /*
-        String context = "";
-        String baseURI = baseRequest.getUri().toString();
-
-        if(!baseURI.startsWith(target) ) {
-
-            final int index = StringUtils.ordinalIndexOf(baseURI, "/", 3);
-            if(index > 0) {
-                context = baseURI.substring(0, index);
-            }
-        }
-
-        super.handle(context+target, baseRequest, request, response);
-        */
-
-        String context = "";
-        String baseURI = baseRequest.getUri().toString();
-
-        /* extract the gateway specific part */
-        String gatewayPath = "";
-        final int targetIndex = StringUtils.ordinalIndexOf(target, "/", 3);
-        if(targetIndex > 0) {
-            gatewayPath = target.substring(0, targetIndex + 1);
-        }
-
-        if(!baseURI.startsWith(gatewayPath) ) {
-
-            final int index = StringUtils.ordinalIndexOf(baseURI, "/", 3);
-            if(index > 0) {
-                context = baseURI.substring(0, index);
-            }
-        }
-
-        super.handle(context+target, baseRequest, request, response);
-
-
-    }
+  }
 }
