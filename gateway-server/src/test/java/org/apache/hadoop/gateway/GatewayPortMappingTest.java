@@ -19,13 +19,24 @@ package org.apache.hadoop.gateway;
  */
 
 import org.apache.hadoop.gateway.config.GatewayConfig;
+import org.apache.hadoop.gateway.services.DefaultGatewayServices;
+import org.apache.hadoop.gateway.services.topology.TopologyService;
+import org.apache.velocity.VelocityContext;
+import org.apache.velocity.app.VelocityEngine;
 import org.easymock.EasyMock;
+import org.eclipse.jetty.server.Server;
+import org.eclipse.jetty.server.ServerConnector;
+import org.eclipse.jetty.server.handler.ContextHandler;
+import org.eclipse.jetty.server.handler.HandlerCollection;
+import org.junit.AfterClass;
 import org.junit.BeforeClass;
+import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.ExpectedException;
 
 import java.io.IOException;
-import java.net.ServerSocket;
 import java.util.Map;
+import java.util.Properties;
 import java.util.concurrent.ConcurrentHashMap;
 
 import static org.hamcrest.MatcherAssert.assertThat;
@@ -33,68 +44,174 @@ import static org.hamcrest.Matchers.greaterThan;
 
 /**
  * Test the Gateway Topology Port Mapping functionality
+ *
  * @since 0.13
  */
 public class GatewayPortMappingTest {
 
-    /**
-     * Mock gateway config
-     */
-    private static GatewayConfig gatewayConfig;
+  /**
+   * Mock gateway config
+   */
+  private static GatewayConfig gatewayConfig;
 
-    public GatewayPortMappingTest() {
-        super();
-    }
+  private static int eeriePort;
+  private static int ontarioPort;
+  private static int huronPort;
 
-    @BeforeClass
-    public static void init() {
+  private static int defaultPort;
 
-        Map<String, Integer> topologyPortMapping = new ConcurrentHashMap<String, Integer>();
+  private static DefaultGatewayServices services;
+  private static TopologyService topos;
+
+  private static VelocityEngine velocity;
+  private static VelocityContext context;
+
+  private static Server gatewayServer;
+
+  private static Properties params;
+
+  @Rule
+  public ExpectedException exception = ExpectedException.none();
+
+  public GatewayPortMappingTest() {
+    super();
+  }
+
+  @BeforeClass
+  public static void init() throws Exception {
+
+    Map<String, Integer> topologyPortMapping = new ConcurrentHashMap<String, Integer>();
 
         /* get unique ports */
-        int port1 = getAvailablePort(1240, 49151);
-        int port2 = getAvailablePort(port1+1, 49151);
-        int port3 = getAvailablePort(port2+1, 49151);
+    eeriePort = getAvailablePort(1240, 49151);
+    ontarioPort = getAvailablePort(eeriePort + 1, 49151);
+    huronPort = getAvailablePort(ontarioPort + 1, 49151);
 
-        topologyPortMapping.put("eerie", port1);
-        topologyPortMapping.put("ontario", port2);
-        topologyPortMapping.put("huron", port3);
+    defaultPort = getAvailablePort(huronPort + 1, 49151);
 
-        gatewayConfig = EasyMock.createNiceMock(GatewayConfig.class);
-        EasyMock.expect(gatewayConfig.getGatewayPortMappings())
-                .andReturn(topologyPortMapping).anyTimes();
-        EasyMock.replay( gatewayConfig );
+    topologyPortMapping.put("eerie", eeriePort);
+    topologyPortMapping.put("ontario", ontarioPort);
+    topologyPortMapping.put("huron", huronPort);
 
+    gatewayConfig = EasyMock.createNiceMock(GatewayConfig.class);
+    EasyMock.expect(gatewayConfig.getGatewayPortMappings())
+        .andReturn(topologyPortMapping).anyTimes();
+
+    EasyMock.expect(gatewayConfig.getGatewayPort()).andReturn(defaultPort)
+        .anyTimes();
+
+    EasyMock.replay(gatewayConfig);
+
+    startGatewayServer();
+
+  }
+
+  @AfterClass
+  public static void stopServers() {
+    try {
+      gatewayServer.stop();
+    } catch (final Exception e) {
+      e.printStackTrace(System.err);
     }
+  }
 
-    /**
-     * This method simply tests the configs
-     */
-    @Test
-    public void testGatewayConfig() {
-        assertThat(gatewayConfig.getGatewayPortMappings().get("eerie"), greaterThan(-1) );
-        assertThat(gatewayConfig.getGatewayPortMappings().get("ontario"), greaterThan(-1) );
-        assertThat(gatewayConfig.getGatewayPortMappings().get("huron"), greaterThan(-1) );
+  /**
+   * This utility method will return the next available port
+   * that can be used.
+   *
+   * @return Port that is available.
+   */
+  public static int getAvailablePort(final int min, final int max) {
+
+    for (int i = min; i <= max; i++) {
+
+      if (!GatewayServer.isPortInUse(i)) {
+        return i;
+      }
     }
-
-
-    /**
-     * This utility method will return the next available port
-     * that can be used.
-     * @return Port that is available.
-     */
-    public static int getAvailablePort(final int min, final int max) {
-
-        for(int i=min; i<=max; i++) {
-
-            try (final ServerSocket ss = new ServerSocket(i)) {
-                ss.setReuseAddress(true);
-            }catch (IOException ignored) {
-                /* can't connect must be free ! */
-                return i;
-            }
-        }
         /* too bad */
-        return -1;
+    return -1;
+  }
+
+  private static void startGatewayServer() throws Exception {
+    /* use default Max threads */
+    gatewayServer = new Server(defaultPort);
+    final ServerConnector connector = new ServerConnector(gatewayServer);
+    gatewayServer.addConnector(connector);
+
+    /* workaround so we can add our handler later at runtime */
+    HandlerCollection handlers = new HandlerCollection(true);
+
+    /* add some initial handlers */
+    ContextHandler context = new ContextHandler();
+    context.setContextPath("/");
+    handlers.addHandler(context);
+
+    gatewayServer.setHandler(handlers);
+
+    // Start Server
+    gatewayServer.start();
+
+    String host = connector.getHost();
+    if (host == null) {
+      host = "localhost";
     }
+    int port = connector.getLocalPort();
+    //serverUri = new URI(String.format("ws://%s:%d/", host, port));
+
+    /* Setup websocket handler */
+    //setupGatewayConfig(backendServerUri.toString());
+    /*
+    final GatewayWebsocketHandler gatewayWebsocketHandler = new GatewayWebsocketHandler(
+        gatewayConfig, services);
+    handlers.addHandler(gatewayWebsocketHandler);
+    gatewayWebsocketHandler.start();
+    */
+  }
+
+  /**
+   * This method simply tests the configs
+   */
+  @Test
+  public void testGatewayConfig() {
+    assertThat(gatewayConfig.getGatewayPortMappings().get("eerie"),
+        greaterThan(-1));
+    assertThat(gatewayConfig.getGatewayPortMappings().get("ontario"),
+        greaterThan(-1));
+    assertThat(gatewayConfig.getGatewayPortMappings().get("huron"),
+        greaterThan(-1));
+  }
+
+  /**
+   * Test case where topologies "eerie" and "huron" use same ports.
+   */
+  @Test
+  public void testCheckPortConflict() throws IOException {
+    /* Check port conflict with default port */
+    exception.expect(IOException.class);
+    exception.expectMessage(String.format(
+        " Topologies %s and %s use the same port %d, ports for topologies (if defined) have to be unique. ",
+        "huron", "eerie", huronPort));
+
+    GatewayServer.checkPortConflict(huronPort, "eerie", gatewayConfig);
+
+  }
+
+  /**
+   * Test a case where gateway is already running and same port is used to start
+   * another gateway.
+   *
+   * @throws IOException
+   */
+  @Test
+  public void testDefaultPortInUse() throws IOException {
+
+    exception.expect(IOException.class);
+    exception
+        .expectMessage(String.format("Port %d already in use.", defaultPort));
+
+    GatewayServer.checkPortConflict(defaultPort, null, gatewayConfig);
+
+  }
+
 }

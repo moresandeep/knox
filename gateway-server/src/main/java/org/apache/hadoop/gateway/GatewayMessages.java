@@ -439,4 +439,22 @@ public interface GatewayMessages {
 
   @Message( level = MessageLevel.DEBUG, text = "Redirect handler forward from {0} to {1}" )
   void redirectHandlerForward( String oldTarget, String newTarget );
+
+  /**
+   * Messages for Topology Port Mapping
+   * @since 0.13
+   * @param port
+   * @param topology
+   */
+  @Message( level = MessageLevel.ERROR, text = "Port {0} configured for Topology - {1} is already in use." )
+  void portAlreadyInUse(final int port, final String topology);
+
+  /**
+   * Messages for Topology Port Mapping
+   * @since 0.13
+   * @param port
+   * @param topology
+   */
+  @Message( level = MessageLevel.ERROR, text = "Port {0} is already in use." )
+  void portAlreadyInUse(final int port);
 }

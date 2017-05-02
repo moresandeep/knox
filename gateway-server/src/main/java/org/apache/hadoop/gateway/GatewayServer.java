@@ -22,6 +22,7 @@ import net.lingala.zip4j.exception.ZipException;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.ParseException;
 import org.apache.commons.io.FileUtils;
+import org.apache.commons.io.IOUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.gateway.audit.api.Action;
 import org.apache.hadoop.gateway.audit.api.ActionOutcome;
@@ -87,10 +88,13 @@ import java.io.FilenameFilter;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.Serializable;
+import java.net.BindException;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
+import java.net.Socket;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.net.UnknownHostException;
 import java.security.KeyStoreException;
 import java.security.NoSuchAlgorithmException;
 import java.security.cert.CertificateException;
@@ -321,14 +325,14 @@ public class GatewayServer {
    * @param server Jetty server
    * @param config GatewayConfig
    * @param port   If value is > 0 then the given value is used else we use the port provided in GatewayConfig.
-   * @param connectorName Connector name, only used when not null
+   * @param topologyName Connector name, only used when not null
    * @return
    * @throws IOException
    * @throws CertificateException
    * @throws NoSuchAlgorithmException
    * @throws KeyStoreException
    */
-  private static Connector createConnector( final Server server, final GatewayConfig config, final int port, final String connectorName ) throws IOException, CertificateException, NoSuchAlgorithmException, KeyStoreException {
+  private static Connector createConnector( final Server server, final GatewayConfig config, final int port, final String topologyName ) throws IOException, CertificateException, NoSuchAlgorithmException, KeyStoreException {
     ServerConnector connector;
 
     // Determine the socket address and check availability.
@@ -336,6 +340,8 @@ public class GatewayServer {
     checkAddressAvailability( address );
 
     final int connectorPort = port > 0 ? port : address.getPort();
+
+    checkPortConflict(connectorPort, topologyName, config);
 
     HttpConfiguration httpConfig = new HttpConfiguration();
     httpConfig.setRequestHeaderSize( config.getHttpServerRequestHeaderBuffer() );
@@ -358,11 +364,8 @@ public class GatewayServer {
     connector.setHost( address.getHostName() );
     connector.setPort( connectorPort );
 
-    if(!StringUtils.isBlank(connectorName)) {
-      connector.setName(connectorName);
-    } else {
-      //FIXME
-      //connector.setName(DEFAULT_CONNECTOR_NAME);
+    if(!StringUtils.isBlank(topologyName)) {
+      connector.setName(topologyName);
     }
 
     long idleTimeout = config.getGatewayIdleTimeout();
@@ -446,6 +449,57 @@ public class GatewayServer {
     return handlers;
   }
 
+  /**
+   * Sanity Check to make sure configured ports are free and there is not port
+   * conflict.
+   *
+   * @param port
+   * @param topologyName
+   * @param config
+   * @throws IOException
+   */
+  public static void checkPortConflict(final int port,
+      final String topologyName, final GatewayConfig config)
+      throws IOException {
+
+    /* Throw an exception if port in use */
+    if (isPortInUse(port)) {
+      if (topologyName == null) {
+        log.portAlreadyInUse(port);
+      } else {
+        log.portAlreadyInUse(port, topologyName);
+      }
+      throw new IOException(String.format(" Port %d already in use. ", port));
+    }
+
+    /* if topology name is blank which means we have all topologies listening on this port */
+    if (StringUtils.isBlank(topologyName)) {
+      if (config.getGatewayPortMappings().containsValue(new Integer(port))) {
+        log.portAlreadyInUse(port);
+        throw new IOException(
+            String.format(" Cannot use port %d, it has to be unique. ", port));
+      }
+    } else {
+      /* Topology name is not blank so check amongst other ports if we have a conflict */
+      for (final Map.Entry<String, Integer> entry : config
+          .getGatewayPortMappings().entrySet()) {
+        if (entry.getKey().equalsIgnoreCase(topologyName)) {
+          continue;
+        }
+
+        if (entry.getValue() == port) {
+          log.portAlreadyInUse(port, topologyName);
+          throw new IOException(String.format(
+              " Topologies %s and %s use the same port %d, ports for topologies (if defined) have to be unique. ",
+              entry.getKey(), topologyName, port));
+        }
+
+      }
+
+    }
+
+  }
+
   private synchronized void start() throws Exception {
     // Create the global context handler.
     contexts = new ContextHandlerCollection();
@@ -455,7 +509,9 @@ public class GatewayServer {
 
     // Start Jetty.
     jetty = new Server( new QueuedThreadPool( config.getThreadPoolMax() ) );
-    jetty.addConnector( createConnector( jetty, config, 0, null) );
+
+    /* topologyName is null because all topology listen on this port */
+    jetty.addConnector( createConnector( jetty, config, config.getGatewayPort(), null) );
 
 
     // Add Annotations processing into the Jetty server to support JSPs
@@ -513,6 +569,28 @@ public class GatewayServer {
     jetty.stop();
     jetty.join();
     log.stoppedGateway();
+  }
+
+  /**
+   * Check whether a port is free
+   *
+   * @param port
+   * @return true if port in use else false
+   */
+  public static boolean isPortInUse(final int port) {
+
+    Socket socket = null;
+    try {
+      socket = new Socket("localhost", port);
+      return true;
+    } catch (final UnknownHostException e) {
+      return false;
+    } catch (final IOException e) {
+      return false;
+    } finally {
+      IOUtils.closeQuietly(socket);
+    }
+
   }
 
   public URI getURI() {
