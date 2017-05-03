@@ -58,6 +58,8 @@ public class GatewayTestConfig extends Configuration implements GatewayConfig {
   private boolean sslEnabled = false;
   private String truststoreType = "jks";
   private String keystoreType = "jks";
+  private boolean isTopologyPortMappingEnabled = true;
+  private ConcurrentHashMap topologyPortMapping = new ConcurrentHashMap<String, Integer>();
 
   public void setGatewayHomeDir( String gatewayHomeDir ) {
     this.gatewayHomeDir = gatewayHomeDir;
@@ -387,6 +389,15 @@ public class GatewayTestConfig extends Configuration implements GatewayConfig {
     return backupVersionLimit;
   }
 
+  public void setTopologyPortMapping(ConcurrentHashMap topologyPortMapping) {
+    this.topologyPortMapping = topologyPortMapping;
+  }
+
+  public void setGatewayPortMappingEnabled(
+      boolean topologyPortMappingEnabled) {
+    isTopologyPortMappingEnabled = topologyPortMappingEnabled;
+  }
+
   private long backupAgeLimit = -1;
 
   @Override
@@ -536,7 +547,7 @@ public class GatewayTestConfig extends Configuration implements GatewayConfig {
    */
   @Override
   public Map<String, Integer> getGatewayPortMappings() {
-    return new ConcurrentHashMap<String, Integer>();
+    return topologyPortMapping;
   }
 
   /**
@@ -547,6 +558,7 @@ public class GatewayTestConfig extends Configuration implements GatewayConfig {
    */
   @Override
   public boolean isGatewayPortMappingEnabled() {
-    return true;
+    return isTopologyPortMappingEnabled;
   }
+
 }
