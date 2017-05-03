@@ -43,11 +43,11 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.greaterThan;
 
 /**
- * Test the Gateway Topology Port Mapping functionality
+ * Test the Gateway Topology Port Mapping config
  *
  * @since 0.13
  */
-public class GatewayPortMappingTest {
+public class GatewayPortMappingConfigTest {
 
   /**
    * Mock gateway config
@@ -73,7 +73,7 @@ public class GatewayPortMappingTest {
   @Rule
   public ExpectedException exception = ExpectedException.none();
 
-  public GatewayPortMappingTest() {
+  public GatewayPortMappingConfigTest() {
     super();
   }
 
@@ -102,6 +102,7 @@ public class GatewayPortMappingTest {
 
     EasyMock.replay(gatewayConfig);
 
+    /* Start gateway to check port conflicts */
     startGatewayServer();
 
   }
@@ -133,41 +134,7 @@ public class GatewayPortMappingTest {
     return -1;
   }
 
-  private static void startGatewayServer() throws Exception {
-    /* use default Max threads */
-    gatewayServer = new Server(defaultPort);
-    final ServerConnector connector = new ServerConnector(gatewayServer);
-    gatewayServer.addConnector(connector);
 
-    /* workaround so we can add our handler later at runtime */
-    HandlerCollection handlers = new HandlerCollection(true);
-
-    /* add some initial handlers */
-    ContextHandler context = new ContextHandler();
-    context.setContextPath("/");
-    handlers.addHandler(context);
-
-    gatewayServer.setHandler(handlers);
-
-    // Start Server
-    gatewayServer.start();
-
-    String host = connector.getHost();
-    if (host == null) {
-      host = "localhost";
-    }
-    int port = connector.getLocalPort();
-    //serverUri = new URI(String.format("ws://%s:%d/", host, port));
-
-    /* Setup websocket handler */
-    //setupGatewayConfig(backendServerUri.toString());
-    /*
-    final GatewayWebsocketHandler gatewayWebsocketHandler = new GatewayWebsocketHandler(
-        gatewayConfig, services);
-    handlers.addHandler(gatewayWebsocketHandler);
-    gatewayWebsocketHandler.start();
-    */
-  }
 
   /**
    * This method simply tests the configs
@@ -211,6 +178,27 @@ public class GatewayPortMappingTest {
         .expectMessage(String.format("Port %d already in use.", defaultPort));
 
     GatewayServer.checkPortConflict(defaultPort, null, gatewayConfig);
+
+  }
+
+  private static void startGatewayServer() throws Exception {
+    /* use default Max threads */
+    gatewayServer = new Server(defaultPort);
+    final ServerConnector connector = new ServerConnector(gatewayServer);
+    gatewayServer.addConnector(connector);
+
+    /* workaround so we can add our handler later at runtime */
+    HandlerCollection handlers = new HandlerCollection(true);
+
+    /* add some initial handlers */
+    ContextHandler context = new ContextHandler();
+    context.setContextPath("/");
+    handlers.addHandler(context);
+
+    gatewayServer.setHandler(handlers);
+
+    // Start Server
+    gatewayServer.start();
 
   }
 

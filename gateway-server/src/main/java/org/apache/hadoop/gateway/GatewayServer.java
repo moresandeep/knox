@@ -305,7 +305,13 @@ public class GatewayServer {
       server.start();
       // Coverity CID 1352654
       URI uri = server.jetty.getURI();
-      log.startedGateway( uri != null ? uri.getPort() : -1 );
+
+      InetSocketAddress[] addresses = server.getAddresses();
+
+      for(final InetSocketAddress address : addresses) {
+        log.startedGateway( address != null ? address.getPort() : -1 );
+      }
+
       return server;
     }
   }
