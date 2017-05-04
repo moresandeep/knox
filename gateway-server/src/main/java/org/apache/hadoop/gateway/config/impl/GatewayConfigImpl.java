@@ -38,7 +38,6 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.regex.Pattern;
 
 /**
  * The configuration for the Gateway.
@@ -823,10 +822,9 @@ public class GatewayConfigImpl extends Configuration implements GatewayConfig {
    */
   @Override
   public Map<String, Integer> getGatewayPortMappings() {
-    Map<String, String> properties;
-    final Map<String, Integer> result = new ConcurrentHashMap<String, Integer>();
 
-    properties = getValByRegex(GATEWAY_PORT_MAPPING_REGEX);
+    final Map<String, Integer> result = new ConcurrentHashMap<String, Integer>();
+    final Map<String, String> properties = getValByRegex(GATEWAY_PORT_MAPPING_REGEX);
 
     /* Convert port no. from string to int */
     for(final Map.Entry<String, String> e : properties.entrySet()) {

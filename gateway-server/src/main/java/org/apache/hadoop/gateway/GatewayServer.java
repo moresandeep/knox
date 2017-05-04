@@ -37,7 +37,7 @@ import org.apache.hadoop.gateway.deploy.DeploymentFactory;
 import org.apache.hadoop.gateway.filter.CorrelationHandler;
 import org.apache.hadoop.gateway.filter.DefaultTopologyHandler;
 import org.apache.hadoop.gateway.filter.PortMappingHelperHandler;
-import org.apache.hadoop.gateway.filter.RequestForwardHandler;
+import org.apache.hadoop.gateway.filter.RequestUpdateHandler;
 import org.apache.hadoop.gateway.i18n.messages.MessagesFactory;
 import org.apache.hadoop.gateway.i18n.resources.ResourcesFactory;
 import org.apache.hadoop.gateway.services.GatewayServices;
@@ -56,7 +56,6 @@ import org.apache.hadoop.gateway.util.XmlUtils;
 import org.apache.hadoop.gateway.websockets.GatewayWebsocketHandler;
 import org.apache.log4j.PropertyConfigurator;
 import org.eclipse.jetty.server.Connector;
-import org.eclipse.jetty.server.Handler;
 import org.eclipse.jetty.server.HttpConfiguration;
 import org.eclipse.jetty.server.HttpConnectionFactory;
 import org.eclipse.jetty.server.NetworkConnector;
@@ -88,7 +87,6 @@ import java.io.FilenameFilter;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.Serializable;
-import java.net.BindException;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
@@ -306,10 +304,23 @@ public class GatewayServer {
       // Coverity CID 1352654
       URI uri = server.jetty.getURI();
 
-      InetSocketAddress[] addresses = server.getAddresses();
+      /* Logging for topology <-> port */
+      InetSocketAddress[] addresses = new InetSocketAddress[server.jetty
+          .getConnectors().length];
+      for (int i = 0, n = addresses.length; i < n; i++) {
+        NetworkConnector connector = (NetworkConnector) server.jetty
+            .getConnectors()[i];
+        if (connector != null) {
 
-      for(final InetSocketAddress address : addresses) {
-        log.startedGateway( address != null ? address.getPort() : -1 );
+          if (connector.getName() == null) {
+            log.startedGateway(
+                connector != null ? connector.getLocalPort() : -1);
+          } else {
+            log.startedGateway(connector != null ? connector.getName() : "",
+                connector != null ? connector.getLocalPort() : -1);
+          }
+
+        }
       }
 
       return server;
@@ -328,9 +339,10 @@ public class GatewayServer {
   /**
    * Create a connector for Gateway Server to listen on.
    *
-   * @param server Jetty server
-   * @param config GatewayConfig
-   * @param port   If value is > 0 then the given value is used else we use the port provided in GatewayConfig.
+   * @param server       Jetty server
+   * @param config       GatewayConfig
+   * @param port         If value is > 0 then the given value is used else we
+   *                     use the port provided in GatewayConfig.
    * @param topologyName Connector name, only used when not null
    * @return
    * @throws IOException
@@ -338,7 +350,11 @@ public class GatewayServer {
    * @throws NoSuchAlgorithmException
    * @throws KeyStoreException
    */
-  private static Connector createConnector( final Server server, final GatewayConfig config, final int port, final String topologyName ) throws IOException, CertificateException, NoSuchAlgorithmException, KeyStoreException {
+  private static Connector createConnector(final Server server,
+      final GatewayConfig config, final int port, final String topologyName)
+      throws IOException, CertificateException, NoSuchAlgorithmException,
+      KeyStoreException {
+
     ServerConnector connector;
 
     // Determine the socket address and check availability.
@@ -420,18 +436,24 @@ public class GatewayServer {
      * If topology to port mapping feature is enabled then we add new Handler {RequestForwardHandler}
      *  to the chain, this handler listens on the configured port (in gateway-site.xml)
      *  and simply forwards requests to the correct context path.
+     *
+     *  The reason for adding ContextHandler is so that we can add a connector
+     *  to it on which the handler listens (exclusively).
      */
 
     if (config.isGatewayPortMappingEnabled()) {
 
-      for (Map.Entry<String, Integer> entry : topologyPortMap.entrySet()) {
-
+      for (final Map.Entry<String, Integer> entry : topologyPortMap
+          .entrySet()) {
+        log.createJettyHandler(entry.getKey());
         final ContextHandler topologyContextHandler = new ContextHandler();
 
-        final RequestForwardHandler redirectHandler = new RequestForwardHandler(config, entry.getKey(), services);
+        final RequestUpdateHandler updateHandler = new RequestUpdateHandler(
+            config, entry.getKey(), services);
 
-        topologyContextHandler.setHandler(redirectHandler);
-        topologyContextHandler.setVirtualHosts(new String[]{"@" + entry.getKey().toLowerCase()});
+        topologyContextHandler.setHandler(updateHandler);
+        topologyContextHandler.setVirtualHosts(
+            new String[] { "@" + entry.getKey().toLowerCase() });
 
         handlers.addHandler(topologyContextHandler);
       }
@@ -533,7 +555,11 @@ public class GatewayServer {
     monitor.addTopologyChangeListener(listener);
     monitor.reloadTopologies();
 
+    final Collection<Topology> topologies = monitor.getTopologies();
     final Map<String, Integer> topologyPortMap = config.getGatewayPortMappings();
+
+    /* Check whether the configured topologies for port mapping exist */
+    checkTopologysExist(topologyPortMap, topologies);
 
     final HandlerCollection handlers = createHandlers( config, services, contexts, topologyPortMap);
 
@@ -541,15 +567,14 @@ public class GatewayServer {
      * Check whether a topology wants dedicated port,
      * if yes then we create a connector that listens on the provided port.
      */
-    if(config.isGatewayPortMappingEnabled()) {
-
-      for(Map.Entry<String, Integer> entry: topologyPortMap.entrySet()) {
-        jetty.addConnector(createConnector(jetty, config, entry.getValue(), entry.getKey().toLowerCase()));
+    log.gatewayTopologyPortMappingEnabled(config.isGatewayPortMappingEnabled());
+    if (config.isGatewayPortMappingEnabled()) {
+      for (Map.Entry<String, Integer> entry : topologyPortMap.entrySet()) {
+        log.createJettyConnector(entry.getKey().toLowerCase(), entry.getValue());
+        jetty.addConnector(createConnector(jetty, config, entry.getValue(),
+            entry.getKey().toLowerCase()));
       }
-
-
     }
-
 
     jetty.setHandler(handlers);
 
@@ -595,6 +620,36 @@ public class GatewayServer {
       return false;
     } finally {
       IOUtils.closeQuietly(socket);
+    }
+
+  }
+
+  /**
+   * Checks whether the topologies defined in gateway-xml as part of Topology
+   * Port mapping feature exists. If it does not throw an exception and quit.
+   *
+   * @param configTopologies
+   * @param topologies
+   * @return
+   * @since 0.13
+   */
+  private void checkTopologysExist(final Map<String, Integer> configTopologies,
+      final Collection<Topology> topologies) throws IOException {
+
+    final List<String> topos = new ArrayList<String>();
+
+    for (final Topology t : topologies) {
+      topos.add(t.getName());
+    }
+
+    for (final String topology : configTopologies.keySet()) {
+
+      /* If the topologies defined in gateway-config.xml are not found in gateway */
+      if (!topos.contains(topology)) {
+        log.topologyPortMappingCannotFindTopology(topology);
+        throw new IOException("cannot find topology " + topology);
+      }
+
     }
 
   }
@@ -731,16 +786,6 @@ public class GatewayServer {
     log.activatingTopologyArchive( topology.getName(), warDir.getName() );
     try {
       WebAppContext newContext = createWebAppContext( topology, warDir, Urls.decode( warDir.getName() ) );
-
-      //FIXME
-      /* Configure the app to listen on a seperate port - configured as connector */
-      //newContext.setVirtualHosts(new String[]{"@"+DEFAULT_CONNECTOR_NAME});
-      /*
-      if(topology.getName().equalsIgnoreCase("sandbox")) {
-        newContext.setVirtualHosts(new String[]{"@"+DEFAULT_CONNECTOR_NAME, "@"+topology.getName()});
-      }
-      */
-
       WebAppContext oldContext = deployments.get( newContext.getContextPath() );
       deployments.put( newContext.getContextPath(), newContext );
       if( oldContext != null ) {
@@ -781,16 +826,6 @@ public class GatewayServer {
         }
       }
     }
-
-    // FIXME: How to deactivate deployments on a seperate ports
-    /*
-    if(defaultDeployments != null) {
-      for( WebAppContext app : defaultDeployments.values() ) {
-        final String warLocation = app.getWar();
-        deactivate.add( app );
-      }
-    }
-    */
 
     // Deactivate the required deployed contexts.
     for( WebAppContext context : deactivate ) {

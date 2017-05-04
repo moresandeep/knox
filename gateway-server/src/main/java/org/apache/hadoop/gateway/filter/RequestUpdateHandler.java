@@ -45,14 +45,14 @@ import java.io.IOException;
  *
  * @since 0.13
  */
-public class RequestForwardHandler extends ScopedHandler {
+public class RequestUpdateHandler extends ScopedHandler {
 
   private static final GatewayMessages LOG = MessagesFactory
       .get(GatewayMessages.class);
 
   private String redirectContext = null;
 
-  public RequestForwardHandler(final GatewayConfig config,
+  public RequestUpdateHandler(final GatewayConfig config,
       final String topologyName, final GatewayServices services) {
     super();
 
@@ -70,24 +70,26 @@ public class RequestForwardHandler extends ScopedHandler {
 
   }
 
-  @Override public void doScope(final String target, final Request baseRequest,
+  @Override
+  public void doScope(final String target, final Request baseRequest,
       final HttpServletRequest request, final HttpServletResponse response)
       throws IOException, ServletException {
     nextScope(target, baseRequest, request, response);
   }
 
-  @Override public void doHandle(final String target, final Request baseRequest,
+  @Override
+  public void doHandle(final String target, final Request baseRequest,
       final HttpServletRequest request, final HttpServletResponse response)
       throws IOException, ServletException {
 
     final String newTarget = redirectContext + target;
 
-    RequestForwardHandler.ForwardedRequest newRequest = new RequestForwardHandler.ForwardedRequest(
+    RequestUpdateHandler.ForwardedRequest newRequest = new RequestUpdateHandler.ForwardedRequest(
         request, redirectContext, newTarget);
 
-    LOG.redirectHandlerForward(target, newTarget);
+    LOG.topologyPortMappingUpdateRequest(target, newTarget);
 
-    /* if the request starts already has the /gateway/{topology} part then skip it */
+    /* if the request already has the /{gatewaypath}/{topology} part then skip */
     if (!StringUtils.startsWithIgnoreCase(target, redirectContext)) {
       baseRequest.setPathInfo(redirectContext + baseRequest.getPathInfo());
       baseRequest.setUri(
@@ -95,10 +97,6 @@ public class RequestForwardHandler extends ScopedHandler {
 
       nextHandle(newTarget, baseRequest, newRequest, response);
     } else {
-      baseRequest.setPathInfo(redirectContext + baseRequest.getPathInfo());
-      baseRequest.setUri(
-          new HttpURI(redirectContext + baseRequest.getUri().toString()));
-
       nextHandle(target, baseRequest, newRequest, response);
     }
 
@@ -120,15 +118,18 @@ public class RequestForwardHandler extends ScopedHandler {
       this.contextpath = contextpath;
     }
 
-    @Override public StringBuffer getRequestURL() {
+    @Override
+    public StringBuffer getRequestURL() {
       return new StringBuffer(newURL);
     }
 
-    @Override public String getRequestURI() {
+    @Override
+    public String getRequestURI() {
       return contextpath + super.getRequestURI();
     }
 
-    @Override public String getContextPath() {
+    @Override
+    public String getContextPath() {
       return this.contextpath;
     }
 

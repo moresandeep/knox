@@ -1,7 +1,9 @@
 package org.apache.hadoop.gateway.filter;
 
 import org.apache.commons.lang.StringUtils;
+import org.apache.hadoop.gateway.GatewayMessages;
 import org.apache.hadoop.gateway.config.GatewayConfig;
+import org.apache.hadoop.gateway.i18n.messages.MessagesFactory;
 import org.eclipse.jetty.server.Request;
 import org.eclipse.jetty.server.handler.HandlerWrapper;
 
@@ -37,6 +39,9 @@ import java.io.IOException;
  */
 public class PortMappingHelperHandler extends HandlerWrapper {
 
+  private static final GatewayMessages LOG = MessagesFactory
+      .get(GatewayMessages.class);
+
   final GatewayConfig config;
 
   public PortMappingHelperHandler(final GatewayConfig config) {
@@ -44,7 +49,8 @@ public class PortMappingHelperHandler extends HandlerWrapper {
     this.config = config;
   }
 
-  @Override public void handle(final String target, final Request baseRequest,
+  @Override
+  public void handle(final String target, final Request baseRequest,
       final HttpServletRequest request, final HttpServletResponse response)
       throws IOException, ServletException {
 
@@ -62,10 +68,11 @@ public class PortMappingHelperHandler extends HandlerWrapper {
         contextPath = target.substring(0, targetIndex + 1);
       }
 
-      /* e.g. context = /{gatewayName}/{topologyname} */
-      //if (!StringUtils.isBlank(contextPath) && !baseURI
-       //   .startsWith(contextPath)) {
-
+      /*
+       * Match "/{gatewayName}/{topologyName/foo" or "/".
+       * There could be a case where content is served from the root
+       * i.e. https://host:port/
+       */
       if (!baseURI.startsWith(contextPath) || target.equals("/")) {
         final int index = StringUtils.ordinalIndexOf(baseURI, "/", 3);
         if (index > 0) {
@@ -73,6 +80,10 @@ public class PortMappingHelperHandler extends HandlerWrapper {
         }
       }
 
+      if(!StringUtils.isBlank(context)) {
+        LOG.topologyPortMappingAddContext(target, context + target);
+      }
+      /* Move on to the next handler in chain with updated path */
       super.handle(context + target, baseRequest, request, response);
     } else {
       super.handle(target, baseRequest, request, response);

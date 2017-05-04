@@ -22,9 +22,7 @@ import org.apache.hadoop.gateway.i18n.messages.Message;
 import org.apache.hadoop.gateway.i18n.messages.MessageLevel;
 import org.apache.hadoop.gateway.i18n.messages.Messages;
 import org.apache.hadoop.gateway.i18n.messages.StackTrace;
-import org.apache.hadoop.gateway.services.security.AliasServiceException;
 import org.apache.hadoop.gateway.services.security.KeystoreServiceException;
-import org.apache.hadoop.gateway.util.urltemplate.Template;
 
 import java.io.File;
 import java.net.URI;
@@ -437,27 +435,89 @@ public interface GatewayMessages {
   @Message( level = MessageLevel.INFO, text = "Cookie scoping feature enabled: {0}" )
   void cookieScopingFeatureEnabled( boolean enabled );
 
-  @Message( level = MessageLevel.INFO, text = "Redirect handler {0} at {1}" )
-  void redirectHandlerSetup( String defaultTopologyName, String redirectContext );
+  /**
+   * Log whether Topology port mapping feature is enabled/disabled.
+   *
+   * @param enabled
+   * @since 0.13
+   */
+  @Message(level = MessageLevel.INFO,
+           text = "Topology port mapping feature enabled: {0}")
+  void gatewayTopologyPortMappingEnabled(final boolean enabled);
 
-  @Message( level = MessageLevel.DEBUG, text = "Redirect handler forward from {0} to {1}" )
-  void redirectHandlerForward( String oldTarget, String newTarget );
+  /**
+   * @param topology
+   * @param port
+   * @since 0.13
+   */
+  @Message(level = MessageLevel.DEBUG,
+           text = "Creating a connector for topology {0} listening on port {1}.")
+  void createJettyConnector(final String topology, final int port);
+
+  /**
+   * @param topology
+   * @since 0.13
+   */
+  @Message(level = MessageLevel.DEBUG,
+           text = "Creating a handler for topology {0}.")
+  void createJettyHandler(final String topology);
+
+  /**
+   * @param oldTarget
+   * @param newTarget
+   * @since 0.13
+   */
+  @Message(level = MessageLevel.INFO,
+           text = "Updating request context from {0} to {1}")
+  void topologyPortMappingAddContext(final String oldTarget,
+      final String newTarget);
+
+  /**
+   * @param oldTarget
+   * @param newTarget
+   * @since 0.13
+   */
+  @Message(level = MessageLevel.DEBUG,
+           text = "Updating request target from {0} to {1}")
+  void topologyPortMappingUpdateRequest(final String oldTarget,
+      final String newTarget);
 
   /**
    * Messages for Topology Port Mapping
-   * @since 0.13
+   *
    * @param port
    * @param topology
+   * @since 0.13
    */
-  @Message( level = MessageLevel.ERROR, text = "Port {0} configured for Topology - {1} is already in use." )
+  @Message(level = MessageLevel.ERROR,
+           text = "Port {0} configured for Topology - {1} is already in use.")
   void portAlreadyInUse(final int port, final String topology);
 
   /**
    * Messages for Topology Port Mapping
-   * @since 0.13
+   *
    * @param port
-   * @param topology
+   * @since 0.13
    */
-  @Message( level = MessageLevel.ERROR, text = "Port {0} is already in use." )
+  @Message(level = MessageLevel.ERROR,
+           text = "Port {0} is already in use.")
   void portAlreadyInUse(final int port);
+
+  /**
+   * Log topology and port
+   *
+   * @param topology
+   * @param port
+   */
+  @Message(level = MessageLevel.INFO,
+           text = "Started gateway, topology {0} listening on port {1}.")
+  void startedGateway(final String topology, final int port);
+
+  /**
+   * @param topology
+   * @since 0.13
+   */
+  @Message(level = MessageLevel.ERROR,
+           text = " Could not find topology {0} configured in gateway-config.xml. ")
+  void topologyPortMappingCannotFindTopology(final String topology);
 }
