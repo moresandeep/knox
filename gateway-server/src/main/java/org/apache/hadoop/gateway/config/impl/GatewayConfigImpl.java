@@ -203,6 +203,9 @@ public class GatewayConfigImpl extends Configuration implements GatewayConfig {
   public static final String DEFAULT_MIME_TYPES_TO_COMPRESS = "text/html, text/plain, text/xml, text/css, "
       + "application/javascript, application/x-javascript, text/javascript";
 
+  public static final String COOKIE_SCOPING_ENABLED =  GATEWAY_CONFIG_FILE_PREFIX + ".scope.cookies.feature.enabled";
+  public static final boolean DEFAULT_COOKIE_SCOPING_FEATURE_ENABLED =  false;
+
   private static List<String> DEFAULT_GLOBAL_RULES_SERVICES;
 
 
@@ -289,6 +292,9 @@ public class GatewayConfigImpl extends Configuration implements GatewayConfig {
     setDefaultGlobalRulesServices();
 
     initGatewayHomeDir( lastFileUrl );
+
+    // log whether the scoping cookies to the gateway.path feature is enabled
+    log.cookieScopingFeatureEnabled(isCookieScopingToPathEnabled());
   }
 
   private void setDefaultGlobalRulesServices() {
@@ -856,5 +862,11 @@ public class GatewayConfigImpl extends Configuration implements GatewayConfig {
     return p.toStandardDuration().getMillis();
   }
 
+  @Override
+  public boolean isCookieScopingToPathEnabled() {
+    final boolean result = Boolean.parseBoolean(get(COOKIE_SCOPING_ENABLED,
+            Boolean.toString(DEFAULT_COOKIE_SCOPING_FEATURE_ENABLED)));
+    return result;
+  }
 
 }

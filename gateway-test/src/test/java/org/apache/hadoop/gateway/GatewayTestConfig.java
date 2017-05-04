@@ -539,6 +539,11 @@ public class GatewayTestConfig extends Configuration implements GatewayConfig {
     return new ArrayList<String>();
   }
 
+  @Override
+  public  boolean isCookieScopingToPathEnabled() {
+      return false;
+  }
+
   /**
    * Map of Topology names and their ports.
    *

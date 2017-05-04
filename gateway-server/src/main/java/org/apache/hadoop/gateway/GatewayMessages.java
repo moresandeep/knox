@@ -434,6 +434,9 @@ public interface GatewayMessages {
   @Message( level = MessageLevel.DEBUG, text = "Failed to stop metrics reporter {0}  : {1}" )
   void failedToStopReporter( String name,  @StackTrace( level = MessageLevel.DEBUG ) Exception e);
 
+  @Message( level = MessageLevel.INFO, text = "Cookie scoping feature enabled: {0}" )
+  void cookieScopingFeatureEnabled( boolean enabled );
+
   @Message( level = MessageLevel.INFO, text = "Redirect handler {0} at {1}" )
   void redirectHandlerSetup( String defaultTopologyName, String redirectContext );
 

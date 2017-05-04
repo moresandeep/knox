@@ -15,28 +15,34 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.hadoop.gateway.identityasserter.filter;
+package org.apache.hadoop.gateway.filter.rewrite.api;
 
+import java.io.IOException;
 
-import javax.security.auth.Subject;
+import javax.servlet.FilterChain;
 import javax.servlet.FilterConfig;
 import javax.servlet.ServletException;
-import org.apache.hadoop.gateway.identityasserter.common.filter.CommonIdentityAssertionFilter;
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
 
-public class IdentityAsserterFilter extends CommonIdentityAssertionFilter {
+import org.apache.hadoop.gateway.filter.AbstractGatewayFilter;
+import org.apache.hadoop.gateway.filter.rewrite.impl.CookieScopeResponseWrapper;
+
+
+public class CookieScopeServletFilter extends AbstractGatewayFilter {
+
+  private String gatewayPath;
 
   @Override
-  public void init(FilterConfig filterConfig) throws ServletException {
-    super.init(filterConfig);
+  public void init( FilterConfig filterConfig ) throws ServletException {
+    super.init( filterConfig );
+    gatewayPath = filterConfig.getInitParameter("gateway.path");
   }
 
   @Override
-  public String[] mapGroupPrincipals(String mappedPrincipalName, Subject subject) {
-    return mapGroupPrincipalsBase(mappedPrincipalName, subject);
+  protected void doFilter( HttpServletRequest request, HttpServletResponse response, FilterChain chain )
+      throws IOException, ServletException {
+    chain.doFilter( request, new CookieScopeResponseWrapper(response, gatewayPath));
   }
 
-  @Override
-  public String mapUserPrincipal(String principalName) {
-    return mapUserPrincipalBase(principalName);
-  }
 }

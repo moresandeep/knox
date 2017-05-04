@@ -238,4 +238,11 @@ public interface GatewayConfig {
    */
   boolean isGatewayPortMappingEnabled();
 
+  /**
+   * Enable cookie scoping to gateway path
+   *
+   * @since 0.13
+   */
+  boolean isCookieScopingToPathEnabled();
+
 }
