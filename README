@@ -34,6 +34,12 @@ Please see the Apache Knox site for detailed description.
 http://knox.apache.org/
 
 ------------------------------------------------------------------------------
+Build Status
+------------------------------------------------------------------------------
+
+https://travis-ci.org/moresandeep/knox.svg?branch=master
+
+------------------------------------------------------------------------------
 Changes
 ------------------------------------------------------------------------------
 Please see the CHANGES file.
