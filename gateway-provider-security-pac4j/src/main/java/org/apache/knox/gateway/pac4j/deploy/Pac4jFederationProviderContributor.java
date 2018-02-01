@@ -40,6 +40,7 @@ public class Pac4jFederationProviderContributor extends
   private static final String ROLE = "federation";
   private static final String NAME = "pac4j";
   private static final String DISPATCHER_FILTER_CLASSNAME = "org.apache.knox.gateway.pac4j.filter.Pac4jDispatcherFilter";
+  private static final String LOGOUT_FILTER_CLASSNAME = "org.apache.knox.gateway.pac4j.filter.Pac4jLogoutFilter";
   private static final String IDENTITY_ADAPTER_CLASSNAME = "org.apache.knox.gateway.pac4j.filter.Pac4jIdentityAdapter";
 
   @Override
@@ -73,6 +74,7 @@ public class Pac4jFederationProviderContributor extends
       params.add( resource.createFilterParam().name( entry.getKey() ).value( entry.getValue() ) );
     }
     resource.addFilter().name( getName() ).role( getRole() ).impl( DISPATCHER_FILTER_CLASSNAME ).params( params );
+    resource.addFilter().name( getName() ).role( getRole() ).impl( LOGOUT_FILTER_CLASSNAME ).params( params );
     resource.addFilter().name( getName() ).role( getRole() ).impl( IDENTITY_ADAPTER_CLASSNAME ).params( params );
   }
 }

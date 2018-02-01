@@ -73,7 +73,7 @@ public class Pac4jDispatcherFilter implements Filter {
 
   private CallbackFilter callbackFilter;
 
-  private SecurityFilter securityFilter;
+  protected SecurityFilter securityFilter;
   private MasterService masterService = null;
   private KeystoreService keystoreService = null;
   private AliasService aliasService = null;
