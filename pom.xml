@@ -224,7 +224,8 @@
         <javax.websocket-api.version>1.1</javax.websocket-api.version>
         <jaxws-ri.version>2.3.3</jaxws-ri.version>
         <jakarta.xml.bind.version>2.3.2</jakarta.xml.bind.version>
-        <jakarta.activation.version>1.2.2</jakarta.activation.version>
+        <jakarta.activation.version>2.0.1</jakarta.activation.version>
+        <jakarta.activation-api.version>1.2.1</jakarta.activation-api.version>
         <java-support.version>7.5.1</java-support.version>
         <javassist.version>3.27.0-GA</javassist.version>
         <jboss-logging.version>3.4.1.Final</jboss-logging.version>
@@ -283,7 +284,9 @@
         <woodstox-core.version>6.4.0</woodstox-core.version>
         <xmlsec.version>2.1.8</xmlsec.version>
         <xmltool.version>3.3</xmltool.version>
-        <xml-jaxb.version>2.3.0</xml-jaxb.version>
+        <xml-jaxb.version>2.3.1</xml-jaxb.version>
+        <jaxb.version>2.3.0</jaxb.version>
+        <jaxb-impl.version>2.3.8</jaxb-impl.version>
         <xml-matchers.version>0.10</xml-matchers.version>
         <zookeeper.version>3.8.1</zookeeper.version>
     </properties>
@@ -1412,6 +1415,12 @@
             </dependency>
 
             <dependency>
+                <groupId>javax.activation</groupId>
+                <artifactId>javax.activation-api</artifactId>
+                <version>${javax.activation.version}</version>
+            </dependency>
+
+            <dependency>
                 <groupId>javax.xml.bind</groupId>
                 <artifactId>jaxb-api</artifactId>
                 <version>${xml-jaxb.version}</version>
@@ -1419,12 +1428,12 @@
             <dependency>
                 <groupId>com.sun.xml.bind</groupId>
                 <artifactId>jaxb-core</artifactId>
-                <version>${xml-jaxb.version}</version>
+                <version>${jaxb.version}</version>
             </dependency>
             <dependency>
                 <groupId>com.sun.xml.bind</groupId>
                 <artifactId>jaxb-impl</artifactId>
-                <version>${xml-jaxb.version}</version>
+                <version>${jaxb-impl.version}</version>
             </dependency>
 
             <dependency>
@@ -1452,12 +1461,6 @@
             </dependency>
 
             <dependency>
-                <groupId>com.sun.activation</groupId>
-                <artifactId>jakarta.activation</artifactId>
-                <version>${jakarta.activation.version}</version>
-            </dependency>
-
-            <dependency>
                 <groupId>org.jvnet.staxex</groupId>
                 <artifactId>stax-ex</artifactId>
                 <version>${stax-ex.version}</version>
@@ -1467,6 +1470,24 @@
                 <groupId>com.sun.xml.fastinfoset</groupId>
                 <artifactId>FastInfoset</artifactId>
                 <version>${fastinfoset.version}</version>
+            </dependency>
+
+            <dependency>
+                <groupId>com.sun.activation</groupId>
+                <artifactId>jakarta.activation</artifactId>
+                <version>${jakarta.activation.version}</version>
+            </dependency>
+
+            <dependency>
+                <groupId>jakarta.activation</groupId>
+                <artifactId>jakarta.activation-api</artifactId>
+                <version>${jakarta.activation-api.version}</version>
+            </dependency>
+
+            <dependency>
+                <groupId>jakarta.xml.bind</groupId>
+                <artifactId>jakarta.xml.bind-api</artifactId>
+                <version>${jakarta.xml.bind.version}</version>
             </dependency>
 
             <dependency>
