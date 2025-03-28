@@ -40,10 +40,10 @@ jobs:
         run: |
           export knoxurl=${KNOX_URL}
           export branch=${BRANCH}
-          docker-compose -f compose/docker-compose.yml build
+          docker compose -f compose/docker-compose.yml build
 
       - name: Start Knox and LDAP Services
-        run: docker-compose -f compose/docker-compose.yml up -d
+        run: docker compose -f compose/docker-compose.yml up -d
 
       - name: Wait for services to stabilize
         run: sleep 30  # Adjust as needed for services startup time
@@ -51,8 +51,8 @@ jobs:
       - name: Run Knox Tests
         run: |
           # Example: Run integration or custom tests here
-          # docker-compose -f compose/docker-compose.yml exec -T knox bash -c "cd /knoxshell && ./run-tests.sh"
+          # docker compose -f compose/docker-compose.yml exec -T knox bash -c "cd /knoxshell && ./run-tests.sh"
 
       - name: Tear Down Docker Compose
         if: always()
-        run: docker-compose -f compose/docker-compose.yml down --volumes
+        run: docker compose -f compose/docker-compose.yml down --volumes
