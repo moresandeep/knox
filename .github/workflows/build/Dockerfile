@@ -1,4 +1,4 @@
-FROM eclipse-temurin-17
+FROM maven:eclipse-temurin-17
 
 MAINTAINER moresandeep
 
