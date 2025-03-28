@@ -19,6 +19,12 @@ on:
   pull_request:
     branches:
       - '**'  # triggers for all PRs
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch to test'
+        required: true
+        default: 'main'
 
 jobs:
   build-and-test:
@@ -26,7 +32,9 @@ jobs:
 
     env:
       KNOX_URL: "https://github.com/apache/knox.git"
-      BRANCH: "${{ github.head_ref }}"  # PR branch being tested
+      # If manually triggered, use the input branch; otherwise, use the PR branch
+      BRANCH: ${{ github.event_name == 'workflow_dispatch' ? github.event.inputs.branch: github.head_ref }}
+
 
     steps:
       - name: Checkout Repository
