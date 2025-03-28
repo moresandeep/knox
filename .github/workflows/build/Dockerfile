@@ -6,7 +6,6 @@ MAINTAINER moresandeep
 RUN apt-get update
 
 RUN apt-get install -y git
-RUN apt-get install -y ant
 
 RUN useradd -ms /bin/bash gateway
 
