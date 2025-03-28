@@ -38,6 +38,8 @@ jobs:
 
       - name: Build Docker Images
         run: |
+          ls -la
+          pwd
           export knoxurl=${KNOX_URL}
           export branch=${BRANCH}
           docker compose -f ./build/compose/docker-compose.yml build
