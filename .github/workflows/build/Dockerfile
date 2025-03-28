@@ -1,18 +1,11 @@
-FROM ubuntu
+FROM maven:3.8.4-openjdk-8
 
 MAINTAINER moresandeep
 
 # Install dependencies
 RUN apt-get update
 
-# install Java 8
-RUN apt-get install -y openjdk-8-jdk
-RUN apt-get install -y openjdk-8-jre
-RUN update-alternatives --config java
-RUN update-alternatives --config javac
 RUN apt-get install -y git
-RUN apt-get install -y maven
-RUN apt-get install -y ant
 
 RUN useradd -ms /bin/bash gateway
 
@@ -24,8 +17,14 @@ RUN git clone -b $branch $knoxurl knox
 
 RUN mkdir /knox/knox-temp-artifacts
 RUN mkdir /knox/knoxshell-temp-artifacts
+
+# Update maven settings to ignore jcenter repo
+#ADD settings.xml /home/gateway/.m2/settings.xml
+#RUN mv /home/gateway/.m2/settings.xml ~/.m2/settings.xml
+ADD settings.xml /usr/share/maven/ref/
+
 # Skipping tests here for faster turnaround.
-RUN cd knox && mvn clean -Ppackage,release install -DskipTests && tar -xvzf target/*/knox-*.tar.gz -C knox-temp-artifacts && tar -xvzf /knox/target/*/knoxshell-*.tar.gz -C knoxshell-temp-artifacts
+RUN cd knox && mvn -settings /usr/share/maven/ref/settings.xml clean -Ppackage,release install -DskipTests && tar -xvzf target/*/knox-*.tar.gz -C knox-temp-artifacts && tar -xvzf /knox/target/*/knoxshell-*.tar.gz -C knoxshell-temp-artifacts
 
 # move runtime to new location
 # See https://github.com/docker/compose/issues/4581#issuecomment-321386605
