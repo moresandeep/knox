@@ -1,4 +1,4 @@
-FROM maven:eclipse-temurin-17
+FROM maven:3.8.3-openjdk-17
 
 MAINTAINER moresandeep
 
