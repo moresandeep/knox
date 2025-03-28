@@ -1,4 +1,4 @@
-FROM maven:3.8.3-openjdk-17
+FROM maven:3.8.1-openjdk-17-slim
 
 MAINTAINER moresandeep
 
