@@ -37,17 +37,6 @@ jobs:
           distribution: 'temurin'
           cache: maven
 
-      - name: Build with Maven
-        run: |
-          mvn -Dforbiddenapis.skip=true -Denforcer.skip -Dpmd.failOnViolation=false \
-            -Dcheckstyle.skip=true -Dspotbugs.skip=true -Ddependency-check.skip=true \
-            -Dmaven.test.skip=true -U clean verify install -Prelease,package,docker
-
-      - name: Extract project version
-        id: project-version
-        run: |
-          echo "version=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout)" >> "$GITHUB_OUTPUT"
-
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
@@ -66,6 +55,17 @@ jobs:
           registry: dhi.io
           username: ${{ secrets.DOCKERHUB_USER }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build with Maven
+        run: |
+          mvn -Dforbiddenapis.skip=true -Denforcer.skip -Dpmd.failOnViolation=false \
+            -Dcheckstyle.skip=true -Dspotbugs.skip=true -Ddependency-check.skip=true \
+            -Dmaven.test.skip=true -U clean verify install -Prelease,package,docker
+
+      - name: Extract project version
+        id: project-version
+        run: |
+          echo "version=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout)" >> "$GITHUB_OUTPUT"
 
       - name: Docker metadata
         id: meta
