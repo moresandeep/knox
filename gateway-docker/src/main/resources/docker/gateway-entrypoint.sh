@@ -50,7 +50,7 @@ importMultipleCerts() {
     ALIAS="${FILE%.*}-$N"
     /bin/cat "$FILE" |
       /usr/bin/awk "n==$N { print }; /END CERTIFICATE/ { n++ }" |
-      /usr/bin/keytool -import \
+      keytool -import \
               -trustcacerts \
               -alias "$ALIAS" \
               -keystore "${KEYSTORE_DIR}"/truststore.jks \
@@ -86,11 +86,12 @@ fi
 
 if [[ -n ${MASTER_SECRET} ]]
 then
-  echo "Using provided knox master secret"
-  /home/knox/knox/bin/knoxcli.sh create-master --master "${MASTER_SECRET}"
+  echo "Using provided knox master secret [env:MASTER_SECRET]"
 else
-  /home/knox/knox/bin/knoxcli.sh create-master --master knox
+  echo "Using default knox master secret"
+  MASTER_SECRET="knox"
 fi
+/home/knox/knox/bin/knoxcli.sh create-master --master "${MASTER_SECRET}"
 
 if [[ -n ${LDAP_PASSWORD_FILE} ]]
 then
@@ -125,7 +126,7 @@ then
   ALIAS_PASSPHRASE=$(/bin/cat "${KEYSTORE_PASSWORD_FILE}" 2>/dev/null)
 else
    # If keystore password is not provided use master secret as alias passphrase
-   ALIAS_PASSPHRASE=${MASTER_SECRET}
+   ALIAS_PASSPHRASE="${MASTER_SECRET}"
 fi
 
 if [[ -n ${KNOX_CERT} ]] && [[ -f ${KNOX_CERT} ]]
@@ -161,7 +162,7 @@ then
     -name keystore
 
   # Create signing JKS
-  /usr/bin/keytool -importkeystore \
+  keytool -importkeystore \
     -destkeystore "${KEYSTORE_DIR}"/keystore.jks \
     -deststorepass "${ALIAS_PASSPHRASE}" \
     -srckeystore /tmp/keystore.p12 \
@@ -187,45 +188,35 @@ then
   importMultipleCerts "$CUSTOM_CERT"
 fi
 
-# Add Amazon Root CA 1
-/usr/bin/keytool -importcert \
-  -keystore "${KEYSTORE_DIR}"/truststore.jks \
-  -alias amazon-ca-1 \
-  -file /home/knox/cacrts/AmazonRootCA1.cer \
-  -storepass "${ALIAS_PASSPHRASE}" \
-  -noprompt || true
+# This default was set to emulate the existing behaviour
+# Customer should be able to override this by specifying this via Docker environment settings
+if [[ -z ${TRUSTSTORE_IMPORTS} ]]
+then
+	TRUSTSTORE_IMPORTS="
+	 amazon-ca-1:/home/knox/cacrts/AmazonRootCA1.cer
+     amazon-ca-2:/home/knox/cacrts/AmazonRootCA2.cer
+     amazon-ca-3:/home/knox/cacrts/AmazonRootCA3.cer
+	 amazon-ca-4:/home/knox/cacrts/AmazonRootCA4.cer
+     letsencrypt-stg-root:/home/knox/cacrts/letsencrypt-stg-root-x1.pem"
+fi
 
-# Add Amazon Root CA 2
-/usr/bin/keytool -importcert \
-  -keystore "${KEYSTORE_DIR}"/truststore.jks \
-  -alias amazon-ca-2 \
-  -file /home/knox/cacrts/AmazonRootCA2.cer \
-  -storepass "${ALIAS_PASSPHRASE}" \
-  -noprompt || true
-
-# Add Amazon Root CA 3
-/usr/bin/keytool -importcert \
-  -keystore "${KEYSTORE_DIR}"/truststore.jks \
-  -alias amazon-ca-3 \
-  -file /home/knox/cacrts/AmazonRootCA3.cer \
-  -storepass "${ALIAS_PASSPHRASE}" \
-  -noprompt || true
-
-# Add Amazon Root CA 4
-/usr/bin/keytool -importcert \
-  -keystore "${KEYSTORE_DIR}"/truststore.jks \
-  -alias amazon-ca-4 \
-  -file /home/knox/cacrts/AmazonRootCA4.cer \
-  -storepass "${ALIAS_PASSPHRASE}" \
-  -noprompt || true
-
-# Add letsencrypt staging root CA
-/usr/bin/keytool -importcert \
-  -keystore "${KEYSTORE_DIR}"/truststore.jks \
-  -alias letsencrypt-stg-root \
-  -file /home/knox/cacrts/letsencrypt-stg-root-x1.pem \
-  -storepass "${ALIAS_PASSPHRASE}" \
-  -noprompt || true
+for certinfo in ${TRUSTSTORE_IMPORTS}
+do
+    aliasId=$(echo "${certinfo}" | awk -F: '{ print $1 }')
+    certPath=$(echo "${certinfo}" | awk -F: '{ print $2 }')
+    if [[ -n "${aliasId}" ]] && [[ -n "${certPath}" ]] && [[ -f "${certPath}" ]]
+    then
+        echo "INFO: Importing certificate [${certPath}] into truststore"
+        keytool -importcert \
+            -keystore "${KEYSTORE_DIR}"/truststore.jks \
+            -alias "${aliasId}" \
+            -file "${certPath}" \
+            -storepass "${ALIAS_PASSPHRASE}" \
+            -noprompt || true
+    else
+        echo "ERROR: certificate [${certinfo}] not found. Not importing into truststore"
+    fi
+done
 
 export KNOX_GATEWAY_DBG_OPTS="${KNOX_GATEWAY_DBG_OPTS} -Djavax.net.ssl.trustStore=${KEYSTORE_DIR}/truststore.jks -Djavax.net.ssl.trustStorePassword=${ALIAS_PASSPHRASE}"
 
