@@ -35,7 +35,7 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 # Create knox user and group
-RUN groupadd --system -g 8000 knox && adduser --system -u 8000 -g knox -h /home/knox knox
+RUN groupadd --system -g 8000 knox && useradd --system -u 8000 -g knox -d /home/knox -m knox
 
 # Dependencies
 ARG RELEASE_FILE
