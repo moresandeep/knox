@@ -30,7 +30,8 @@ RUN apt-get update && \
        unzip \
        libnss3 \
        bash \
-       passwd && \
+       passwd \
+       curl && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 

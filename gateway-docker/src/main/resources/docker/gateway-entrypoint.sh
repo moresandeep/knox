@@ -59,7 +59,7 @@ importMultipleCerts() {
             -alias "$ALIAS" \
             -keystore "${KEYSTORE_DIR}"/truststore.jks \
             -storepass "$ALIAS_PASSPHRASE" \
-            2>/dev/null || true
+            > /dev/null 2>&1 || true
     if ! /bin/cat "$FILE" |
       /usr/bin/awk "n==$N { print }; /END CERTIFICATE/ { n++ }" |
       keytool -import \
@@ -98,7 +98,7 @@ export GATEWAY_SERVER_RUN_IN_FOREGROUND=true
 # Create Master secret
 if [[ -n ${KNOX_MASTER_SECRET} ]]
 then
-  MASTER_SECRET=$(/bin/cat "${KNOX_MASTER_SECRET}" 2>/dev/null)
+  MASTER_SECRET=$(/bin/cat "${KNOX_MASTER_SECRET}" 2> /dev/null)
 fi
 
 if [[ -n ${MASTER_SECRET} ]]
@@ -112,7 +112,7 @@ fi
 
 if [[ -n ${LDAP_PASSWORD_FILE} ]]
 then
-  LDAP_BIND_PASSWORD=$(/bin/cat "${LDAP_PASSWORD_FILE}" 2>/dev/null)
+  LDAP_BIND_PASSWORD=$(/bin/cat "${LDAP_PASSWORD_FILE}" 2> /dev/null)
 fi
 
 saveAlias ldap-bind-password "${LDAP_BIND_PASSWORD}"
@@ -140,7 +140,7 @@ fi
 if [[ -n ${KEYSTORE_PASSWORD_FILE} ]] && [[ -f ${KEYSTORE_PASSWORD_FILE} ]]
 then
   echo "Using provided keystore password file"
-  ALIAS_PASSPHRASE=$(/bin/cat "${KEYSTORE_PASSWORD_FILE}" 2>/dev/null)
+  ALIAS_PASSPHRASE=$(/bin/cat "${KEYSTORE_PASSWORD_FILE}" 2> /dev/null)
 else
    # If keystore password is not provided use master secret as alias passphrase
    ALIAS_PASSPHRASE="${MASTER_SECRET}"
@@ -205,7 +205,7 @@ if [[ -n $CUSTOM_CERT ]] && [[ -f ${CUSTOM_CERT} ]]
 then
   echo "Importing Custom certs."
   if ! importMultipleCerts "$CUSTOM_CERT"; then
-      echo "WARN: Unable to import custom certs from [${$CUSTOM_CERT}]. Continuing startup..."
+      echo "WARN: Unable to import custom certs from [${CUSTOM_CERT}]. Continuing startup..."
     fi
 fi
 
@@ -217,8 +217,9 @@ then
 	 amazon-ca-1:/home/knox/cacrts/AmazonRootCA1.cer
      amazon-ca-2:/home/knox/cacrts/AmazonRootCA2.cer
      amazon-ca-3:/home/knox/cacrts/AmazonRootCA3.cer
-	 amazon-ca-4:/home/knox/cacrts/AmazonRootCA4.cer
-     letsencrypt-stg-root:/home/knox/cacrts/letsencrypt-stg-root-x1.pem"
+	   amazon-ca-4:/home/knox/cacrts/AmazonRootCA4.cer
+     isrgrootx1:/home/knox/cacrts/isrgrootx1.pem
+     isrgrootx2:/home/knox/cacrts/isrg-root-x2.pem"
 fi
 
 for certinfo in ${TRUSTSTORE_IMPORTS}
@@ -233,7 +234,7 @@ do
             -keystore "${KEYSTORE_DIR}"/truststore.jks \
             -alias "${aliasId}" \
             -storepass "${ALIAS_PASSPHRASE}" \
-            2>/dev/null || true
+            > /dev/null 2>&1 || true
         keytool -importcert \
             -keystore "${KEYSTORE_DIR}"/truststore.jks \
             -alias "${aliasId}" \
