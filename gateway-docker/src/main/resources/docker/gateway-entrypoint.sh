@@ -106,7 +106,7 @@ then
   echo "Using provided knox master secret [env:MASTER_SECRET]"
 else
   echo "Using default knox master secret"
-  MASTER_SECRET="knox"
+  MASTER_SECRET="!apacheknox!"
 fi
 /home/knox/knox/bin/knoxcli.sh create-master --master "${MASTER_SECRET}"
 
