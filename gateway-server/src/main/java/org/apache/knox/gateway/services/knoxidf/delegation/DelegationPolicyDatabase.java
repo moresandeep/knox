@@ -50,12 +50,16 @@ class DelegationPolicyDatabase extends KnoxDatabase {
           + "description, created_by, created_at, updated_at, allow_headless_exchange) "
           + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
+  // actor_authority/actor_id/created_by/created_at are deliberately absent from SET: identity and
+  // creation metadata are immutable after registration. updated_at is computed by the database,
+  // not supplied by the caller. The WHERE clause requires the identity fields to still match, so
+  // an update attempting to change them affects 0 rows -- indistinguishable from (and reported the
+  // same as) registrationId not existing at all.
   private static final String UPDATE_CORE_SQL =
       "UPDATE " + CORE_TABLE + " SET "
-          + "actor_authority = ?, actor_id = ?, name = ?, status = ?, token_ttl_sec = ?, "
-          + "description = ?, created_by = ?, created_at = ?, updated_at = ?, "
-          + "allow_headless_exchange = ? "
-          + "WHERE registration_id = ?";
+          + "name = ?, status = ?, token_ttl_sec = ?, description = ?, allow_headless_exchange = ?, "
+          + "updated_at = CURRENT_TIMESTAMP "
+          + "WHERE registration_id = ? AND actor_authority = ? AND actor_id = ?";
 
   private static final String DELETE_REGISTRATION_SQL =
       "DELETE FROM " + CORE_TABLE + " WHERE registration_id = ?";
@@ -191,14 +195,23 @@ class DelegationPolicyDatabase extends KnoxDatabase {
     }
   }
 
-  void updatePolicy(String registrationId, DelegationPolicy policy) throws SQLException {
+  /**
+   * @return true if a core row matched registrationId and was updated; false if no row matches --
+   *     either because registrationId does not exist at all, or because it exists but with a
+   *     different actorAuthority/actorId (identity mismatch). Either way, nothing is written.
+   */
+  boolean updatePolicy(String registrationId, DelegationPolicy policy) throws SQLException {
     try (Connection connection = dataSource.getConnection()) {
       final boolean prevAutoCommit = connection.getAutoCommit();
       connection.setAutoCommit(false);
       try {
-        updateCoreRow(connection, registrationId, policy);
+        if (updateCoreRow(connection, registrationId, policy) == 0) {
+          connection.rollback();
+          return false;
+        }
         replaceChildRows(connection, registrationId, policy);
         connection.commit();
+        return true;
       } catch (SQLException e) {
         connection.rollback();
         throw e;
@@ -208,9 +221,14 @@ class DelegationPolicyDatabase extends KnoxDatabase {
     }
   }
 
-  void deletePolicy(String registrationId) throws SQLException {
+  /**
+   * @return true if a core row matched registrationId and was deleted (child rows are removed by
+   *     the database via ON DELETE CASCADE); false if registrationId does not exist, in which case
+   *     nothing was deleted.
+   */
+  boolean deletePolicy(String registrationId) throws SQLException {
     try (Connection connection = dataSource.getConnection()) {
-      deleteRegistrationRow(connection, registrationId);
+      return deleteRegistrationRow(connection, registrationId) > 0;
     }
   }
 
@@ -281,24 +299,21 @@ class DelegationPolicyDatabase extends KnoxDatabase {
     }
   }
 
-  private void updateCoreRow(Connection connection, String registrationId, DelegationPolicy policy) throws SQLException {
+  private int updateCoreRow(Connection connection, String registrationId, DelegationPolicy policy) throws SQLException {
     try (PreparedStatement ps = connection.prepareStatement(UPDATE_CORE_SQL)) {
-      ps.setString(1, policy.getActorAuthority());
-      ps.setString(2, policy.getActorId());
-      ps.setString(3, policy.getName());
-      ps.setString(4, policy.getStatus());
+      ps.setString(1, policy.getName());
+      ps.setString(2, policy.getStatus());
       if (policy.getTokenTtlSec() != null) {
-        ps.setInt(5, policy.getTokenTtlSec());
+        ps.setInt(3, policy.getTokenTtlSec());
       } else {
-        ps.setNull(5, java.sql.Types.INTEGER);
+        ps.setNull(3, java.sql.Types.INTEGER);
       }
-      ps.setString(6, policy.getDescription());
-      ps.setString(7, policy.getCreatedBy());
-      ps.setTimestamp(8, Timestamp.from(policy.getCreatedAt()));
-      ps.setTimestamp(9, Timestamp.from(policy.getUpdatedAt()));
-      ps.setBoolean(10, policy.isAllowHeadlessExchange());
-      ps.setString(11, registrationId);
-      ps.executeUpdate();
+      ps.setString(4, policy.getDescription());
+      ps.setBoolean(5, policy.isAllowHeadlessExchange());
+      ps.setString(6, registrationId);
+      ps.setString(7, policy.getActorAuthority());
+      ps.setString(8, policy.getActorId());
+      return ps.executeUpdate();
     }
   }
 
@@ -316,10 +331,10 @@ class DelegationPolicyDatabase extends KnoxDatabase {
     insertChildRows(connection, registrationId, policy);
   }
 
-  private void deleteRegistrationRow(Connection connection, String registrationId) throws SQLException {
+  private int deleteRegistrationRow(Connection connection, String registrationId) throws SQLException {
     try (PreparedStatement ps = connection.prepareStatement(DELETE_REGISTRATION_SQL)) {
       ps.setString(1, registrationId);
-      ps.executeUpdate();
+      return ps.executeUpdate();
     }
   }
 

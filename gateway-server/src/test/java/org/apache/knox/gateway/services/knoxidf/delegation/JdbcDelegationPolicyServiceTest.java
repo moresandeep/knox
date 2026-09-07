@@ -41,6 +41,7 @@ import java.util.Set;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertThrows;
@@ -160,7 +161,31 @@ public class JdbcDelegationPolicyServiceTest {
         null, "active", null, null, null, Instant.now(),
         Collections.emptySet(), Collections.emptySet(), Collections.emptyMap());
     service.register(first);
-    assertThrows(RuntimeException.class, () -> service.register(first));
+    final DelegationPolicyAlreadyExistsException e =
+        assertThrows(DelegationPolicyAlreadyExistsException.class, () -> service.register(first));
+    assertNotNull("cause chain must retain the original SQLException", findSQLException(e));
+  }
+
+  @Test
+  public void testRegisterUnrelatedStorageFailureThrowsPlainRuntimeException() throws Exception {
+    // A VARCHAR(20) column overflow triggers Derby's data-exception SQLState 22001, which is not
+    // an integrity-constraint violation -- confirms isUniqueConstraintViolation doesn't over-match.
+    final DelegationPolicy tooLongAuthority = policy(
+        "this-authority-is-far-too-long-for-the-column", "actorIdForOverflow",
+        null, "active", null, null, null, Instant.now(),
+        Collections.emptySet(), Collections.emptySet(), Collections.emptyMap());
+    final RuntimeException e = assertThrows(RuntimeException.class, () -> service.register(tooLongAuthority));
+    assertFalse(e instanceof DelegationPolicyAlreadyExistsException);
+  }
+
+  private static SQLException findSQLException(Throwable t) {
+    final int maxDepth = 1000;
+    for (int depth = 0; t != null && depth < maxDepth; t = t.getCause(), depth++) {
+      if (t instanceof SQLException) {
+        return (SQLException) t;
+      }
+    }
+    return null;
   }
 
   @Test
@@ -214,6 +239,134 @@ public class JdbcDelegationPolicyServiceTest {
   }
 
   @Test
+  public void testUpdateNonExistentRegistrationIdThrowsNotFound() throws Exception {
+    final DelegationPolicy update = policy("oidc", "actorId-missing",
+        "name", "active", null, null, null, Instant.now(),
+        Collections.singleton("alice"), Collections.emptySet(), Collections.emptyMap());
+    assertThrows(DelegationPolicyNotFoundException.class,
+        () -> service.update("nonexistent-registration-id", update));
+  }
+
+  @Test
+  public void testUpdateRejectsActorAuthorityChange() throws Exception {
+    final DelegationPolicy original = policy("oidc", "actorId6",
+        "original", "active", null, null, null, Instant.now(),
+        Collections.singleton("alice"), Collections.emptySet(), Collections.emptyMap());
+    final String id = service.register(original).getRegistrationId();
+
+    final DelegationPolicy attempt = policy("different-authority", "actorId6",
+        "updated", "active", null, null, null, Instant.now(),
+        Collections.singleton("alice"), Collections.emptySet(), Collections.emptyMap());
+
+    assertThrows(DelegationPolicyNotFoundException.class, () -> service.update(id, attempt));
+
+    // Identity is immutable, so a rejected update must leave the stored row untouched.
+    final DelegationPolicy fetched = service.get(id).orElseThrow(AssertionError::new);
+    assertEquals("original", fetched.getName());
+    assertEquals("oidc", fetched.getActorAuthority());
+  }
+
+  @Test
+  public void testUpdateRejectsActorIdChange() throws Exception {
+    final DelegationPolicy original = policy("oidc", "actorId7",
+        "original", "active", null, null, null, Instant.now(),
+        Collections.singleton("alice"), Collections.emptySet(), Collections.emptyMap());
+    final String id = service.register(original).getRegistrationId();
+
+    final DelegationPolicy attempt = policy("oidc", "different-actor-id",
+        "updated", "active", null, null, null, Instant.now(),
+        Collections.singleton("alice"), Collections.emptySet(), Collections.emptyMap());
+
+    assertThrows(DelegationPolicyNotFoundException.class, () -> service.update(id, attempt));
+
+    final DelegationPolicy fetched = service.get(id).orElseThrow(AssertionError::new);
+    assertEquals("original", fetched.getName());
+    assertEquals("actorId7", fetched.getActorId());
+  }
+
+  @Test
+  public void testUpdatePreservesCreatedByAndCreatedAtAndReturnsPersistedRow() throws Exception {
+    final Instant originalCreatedAt = Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MILLIS).minusSeconds(3600);
+    final DelegationPolicy original = policy("oidc", "actorId8",
+        "original", "active", null, null, "original-admin", originalCreatedAt,
+        Collections.singleton("alice"), Collections.emptySet(), Collections.emptyMap());
+    final String id = service.register(original).getRegistrationId();
+
+    // Client-supplied createdBy/createdAt on the update payload must be ignored entirely.
+    final DelegationPolicy attempt = policy("oidc", "actorId8",
+        "updated", "active", null, null, "spoofed-admin", Instant.now().minusSeconds(9999),
+        Collections.singleton("alice"), Collections.emptySet(), Collections.emptyMap());
+
+    final DelegationPolicy result = service.update(id, attempt);
+
+    assertEquals("original-admin", result.getCreatedBy());
+    assertEquals(originalCreatedAt, result.getCreatedAt());
+    assertNotEquals(originalCreatedAt, result.getUpdatedAt());
+
+    final DelegationPolicy fetched = service.get(id).orElseThrow(AssertionError::new);
+    assertEquals("original-admin", fetched.getCreatedBy());
+    assertEquals(originalCreatedAt, fetched.getCreatedAt());
+  }
+
+  // ------------------------------------------------------------------
+  // registerOrUpdate
+  // ------------------------------------------------------------------
+
+  @Test
+  public void testRegisterOrUpdateCreatesNewActor() throws Exception {
+    final DelegationPolicy input = policy("oidc", "actorId-upsert-1",
+        "name", "active", null, null, "admin1", Instant.now(),
+        Collections.singleton("alice"), Collections.emptySet(), Collections.emptyMap());
+
+    final RegisterOrUpdateResult result = service.registerOrUpdate(input);
+
+    assertTrue("first call for a new actor must create", result.isCreated());
+    assertNotNull("a registrationId must be generated", result.getPolicy().getRegistrationId());
+    final DelegationPolicy fetched = service.findByActor("oidc", "actorId-upsert-1").orElseThrow(AssertionError::new);
+    assertEquals(result.getPolicy().getRegistrationId(), fetched.getRegistrationId());
+  }
+
+  @Test
+  public void testRegisterOrUpdateReplacesExistingActorInPlace() throws Exception {
+    final Instant originalCreatedAt = Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MILLIS).minusSeconds(3600);
+    final DelegationPolicy first = policy("oidc", "actorId-upsert-2",
+        "name-v1", "active", 1200, null, "admin1", originalCreatedAt,
+        Collections.singleton("alice"), Collections.emptySet(), Collections.emptyMap());
+    final RegisterOrUpdateResult created = service.registerOrUpdate(first);
+    assertTrue(created.isCreated());
+    final String registrationId = created.getPolicy().getRegistrationId();
+    assertEquals("admin1", created.getPolicy().getCreatedBy());
+    assertEquals(originalCreatedAt, created.getPolicy().getCreatedAt());
+
+    // actorAuthority/actorId are the same as `first` (identity, required to hit the update
+    // branch); createdBy/createdAt are client-supplied here (as they would be in every reconcile
+    // payload) and must be ignored -- identity/creation fields stay immutable after registration,
+    // same as a plain update() call.
+    final DelegationPolicy second = policy("oidc", "actorId-upsert-2",
+        "name-v2", "active", 3600, "updated-desc", "spoofed-admin", Instant.now().minusSeconds(9999),
+        new HashSet<>(Arrays.asList("alice", "bob")), Collections.emptySet(), Collections.emptyMap());
+    final RegisterOrUpdateResult updated = service.registerOrUpdate(second);
+
+    assertFalse("second call for the same actor must update, not create", updated.isCreated());
+    assertEquals("registrationId must be stable across reconciles", registrationId, updated.getPolicy().getRegistrationId());
+    assertEquals("oidc", updated.getPolicy().getActorAuthority());
+    assertEquals("actorId-upsert-2", updated.getPolicy().getActorId());
+    assertEquals("name-v2", updated.getPolicy().getName());
+    assertEquals(Integer.valueOf(3600), updated.getPolicy().getTokenTtlSec());
+    assertEquals("updated-desc", updated.getPolicy().getDescription());
+    assertEquals(2, updated.getPolicy().getCanActForUsers().size());
+    assertEquals("createdBy is immutable and must survive an upsert-triggered update",
+        "admin1", updated.getPolicy().getCreatedBy());
+    assertEquals("createdAt is immutable and must survive an upsert-triggered update",
+        originalCreatedAt, updated.getPolicy().getCreatedAt());
+    assertNotEquals(originalCreatedAt, updated.getPolicy().getUpdatedAt());
+
+    final DelegationPolicy fetched = service.get(registrationId).orElseThrow(AssertionError::new);
+    assertEquals("admin1", fetched.getCreatedBy());
+    assertEquals(originalCreatedAt, fetched.getCreatedAt());
+  }
+
+  @Test
   public void testDeleteRemovesPolicyAndChildRows() throws Exception {
     final DelegationPolicy registered = service.register(policy("oidc", "actorId5",
         null, "active", null, null, null, Instant.now(),
@@ -235,6 +388,12 @@ public class JdbcDelegationPolicyServiceTest {
         assertEquals(0, rs.getInt(1));
       }
     }
+  }
+
+  @Test
+  public void testDeleteNonExistentRegistrationIdThrowsNotFound() {
+    assertThrows(DelegationPolicyNotFoundException.class,
+        () -> service.delete("nonexistent-registration-id"));
   }
 
   @Test

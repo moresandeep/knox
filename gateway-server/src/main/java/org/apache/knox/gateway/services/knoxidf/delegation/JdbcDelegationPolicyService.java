@@ -18,10 +18,12 @@ package org.apache.knox.gateway.services.knoxidf.delegation;
 
 import org.apache.knox.gateway.config.GatewayConfig;
 import org.apache.knox.gateway.database.DataSourceProvider;
+import org.apache.knox.gateway.database.JDBCUtils;
 import org.apache.knox.gateway.i18n.messages.MessagesFactory;
 import org.apache.knox.gateway.services.ServiceLifecycleException;
 import org.apache.knox.gateway.services.security.AliasService;
 
+import java.sql.SQLException;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -93,8 +95,22 @@ public class JdbcDelegationPolicyService implements DelegationPolicyService {
 
   @Override
   public DelegationPolicy register(DelegationPolicy policy) {
+    final String id;
     try {
-      final String id = database.insertPolicy(policy);
+      id = database.insertPolicy(policy);
+    } catch (SQLException e) {
+      if (JDBCUtils.isUniqueConstraintViolation(e)) {
+        throw new DelegationPolicyAlreadyExistsException(policy.getActorAuthority(), policy.getActorId(), e);
+      }
+      LOG.errorRegisteringPolicy(policy.getActorAuthority(), policy.getActorId(), e.getMessage(), e);
+      throw new RuntimeException(
+          "Error registering delegation policy for actor (" + policy.getActorAuthority() + ", " + policy.getActorId() + "): " + e, e);
+    } catch (Exception e) {
+      LOG.errorRegisteringPolicy(policy.getActorAuthority(), policy.getActorId(), e.getMessage(), e);
+      throw new RuntimeException(
+          "Error registering delegation policy for actor (" + policy.getActorAuthority() + ", " + policy.getActorId() + "): " + e, e);
+    }
+    try {
       return database.selectById(id).orElseThrow(
           () -> new RuntimeException("Failed to read back registered policy " + id));
     } catch (Exception e) {
@@ -105,9 +121,15 @@ public class JdbcDelegationPolicyService implements DelegationPolicyService {
   }
 
   @Override
-  public void update(String registrationId, DelegationPolicy policy) {
+  public DelegationPolicy update(String registrationId, DelegationPolicy policy) {
     try {
-      database.updatePolicy(registrationId, policy);
+      if (!database.updatePolicy(registrationId, policy)) {
+        throw new DelegationPolicyNotFoundException(registrationId);
+      }
+      return database.selectById(registrationId).orElseThrow(
+          () -> new RuntimeException("Failed to read back updated policy " + registrationId));
+    } catch (DelegationPolicyNotFoundException e) {
+      throw e;
     } catch (Exception e) {
       LOG.errorUpdatingPolicy(registrationId, e.getMessage(), e);
       throw new RuntimeException("Error updating delegation policy " + registrationId + ": " + e, e);
@@ -115,9 +137,37 @@ public class JdbcDelegationPolicyService implements DelegationPolicyService {
   }
 
   @Override
+  public RegisterOrUpdateResult registerOrUpdate(DelegationPolicy policy) {
+    final Optional<DelegationPolicy> existing = findByActor(policy.getActorAuthority(), policy.getActorId());
+    if (existing.isPresent()) {
+      try {
+        return new RegisterOrUpdateResult(update(existing.get().getRegistrationId(), policy), false);
+      } catch (DelegationPolicyNotFoundException e) {
+        // Deleted concurrently between our findByActor() and update() -- fall through to create.
+      }
+      return new RegisterOrUpdateResult(register(policy), true); // a second race propagates as-is
+    } else {
+      try {
+        return new RegisterOrUpdateResult(register(policy), true);
+      } catch (DelegationPolicyAlreadyExistsException e) {
+        // Created concurrently between our findByActor() and register() -- fall through to update.
+      }
+      final DelegationPolicy winner = findByActor(policy.getActorAuthority(), policy.getActorId())
+          .orElseThrow(() -> new IllegalStateException(
+              "Actor (" + policy.getActorAuthority() + ", " + policy.getActorId()
+                  + ") reported as already existing but not found on re-lookup"));
+      return new RegisterOrUpdateResult(update(winner.getRegistrationId(), policy), false);
+    }
+  }
+
+  @Override
   public void delete(String registrationId) {
     try {
-      database.deletePolicy(registrationId);
+      if (!database.deletePolicy(registrationId)) {
+        throw new DelegationPolicyNotFoundException(registrationId);
+      }
+    } catch (DelegationPolicyNotFoundException e) {
+      throw e;
     } catch (Exception e) {
       LOG.errorDeletingPolicy(registrationId, e.getMessage(), e);
       throw new RuntimeException("Error deleting delegation policy " + registrationId + ": " + e, e);
