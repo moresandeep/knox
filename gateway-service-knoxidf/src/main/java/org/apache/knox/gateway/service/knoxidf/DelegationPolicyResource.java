@@ -27,7 +27,6 @@ import org.apache.knox.gateway.audit.api.AuditServiceFactory;
 import org.apache.knox.gateway.audit.api.Auditor;
 import org.apache.knox.gateway.audit.api.ResourceType;
 import org.apache.knox.gateway.audit.log4j.audit.AuditConstants;
-import org.apache.knox.gateway.config.GatewayConfig;
 import org.apache.knox.gateway.services.GatewayServices;
 import org.apache.knox.gateway.services.ServiceType;
 import org.apache.knox.gateway.services.knoxidf.delegation.DelegationPolicy;
@@ -67,6 +66,11 @@ public class DelegationPolicyResource {
 
   static final String RESOURCE_PATH = "knoxidf/admin/v1/delegation-policies";
 
+  static final String MIN_TOKEN_TTL_SEC_PARAM = "knox.delegation.min.token.ttl.sec";
+  static final String MAX_TOKEN_TTL_SEC_PARAM = "knox.delegation.max.token.ttl.sec";
+  static final int DEFAULT_MIN_TOKEN_TTL_SEC = 60;      // 1 minute
+  static final int DEFAULT_MAX_TOKEN_TTL_SEC = 86400;   // 24 hours
+
   private static final ObjectMapper MAPPER = new ObjectMapper()
       .registerModule(new JavaTimeModule())
       .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
@@ -84,20 +88,52 @@ public class DelegationPolicyResource {
 
   private DelegationPolicyService policyService;
 
-  private int minTokenTtlSec = GatewayConfig.DELEGATION_SERVICE_MIN_TOKEN_TTL_SEC_DEFAULT;
-  private int maxTokenTtlSec = GatewayConfig.DELEGATION_SERVICE_MAX_TOKEN_TTL_SEC_DEFAULT;
+  private int minTokenTtlSec =  DEFAULT_MIN_TOKEN_TTL_SEC;
+  private int maxTokenTtlSec =   DEFAULT_MAX_TOKEN_TTL_SEC;
 
   @PostConstruct
   public void init() {
     final GatewayServices services = (GatewayServices)
         servletContext.getAttribute(GatewayServices.GATEWAY_SERVICES_ATTRIBUTE);
     policyService = services.getService(ServiceType.DELEGATION_POLICY_SERVICE);
+    configureTtlBounds();
+  }
 
-    final GatewayConfig config = (GatewayConfig) servletContext.getAttribute(GatewayConfig.GATEWAY_CONFIG_ATTRIBUTE);
-    if (config != null) {
-      minTokenTtlSec = config.getDelegationServiceMinTokenTtlSec();
-      maxTokenTtlSec = config.getDelegationServiceMaxTokenTtlSec();
+  private void configureTtlBounds() {
+    minTokenTtlSec = readPositiveIntParam(MIN_TOKEN_TTL_SEC_PARAM, DEFAULT_MIN_TOKEN_TTL_SEC);
+    maxTokenTtlSec = readPositiveIntParam(MAX_TOKEN_TTL_SEC_PARAM, DEFAULT_MAX_TOKEN_TTL_SEC);
+    if (minTokenTtlSec > maxTokenTtlSec) {
+      throw new IllegalStateException("Invalid delegation policy TTL bounds: "
+              + MIN_TOKEN_TTL_SEC_PARAM + " (" + minTokenTtlSec + ") must not exceed "
+              + MAX_TOKEN_TTL_SEC_PARAM + " (" + maxTokenTtlSec + ")");
     }
+
+    final int configuredDefaultTtlSec = policyService.getConfiguredTokenTtlSec();
+    if (configuredDefaultTtlSec < minTokenTtlSec || configuredDefaultTtlSec > maxTokenTtlSec) {
+      throw new IllegalStateException("Configured default delegation token TTL ("
+              + configuredDefaultTtlSec + "s) is outside the enforced bounds [" + minTokenTtlSec + ", "
+              + maxTokenTtlSec + "]; policies without an explicit tokenTtlSec would receive an "
+              + "out-of-range effective TTL");
+    }
+  }
+
+  private int readPositiveIntParam(String paramName, int defaultValue) {
+    final String raw = servletContext.getInitParameter(paramName);
+    if (StringUtils.isBlank(raw)) {
+      return defaultValue;
+    }
+    final int value;
+    try {
+      value = Integer.parseInt(raw.trim());
+    } catch (NumberFormatException e) {
+      throw new IllegalStateException("Invalid value for " + paramName + ": \"" + raw
+          + "\" is not an integer");
+    }
+    if (value <= 0) {
+      throw new IllegalStateException("Invalid value for " + paramName + ": " + value
+          + " must be a positive number of seconds");
+    }
+    return value;
   }
 
   @POST
@@ -181,29 +217,41 @@ public class DelegationPolicyResource {
 
   @GET
   public Response list(@QueryParam("actorAuthority") String actorAuthority) {
+    final String filter = StringUtils.isBlank(actorAuthority) ? null : actorAuthority;
+    String outcome = ActionOutcome.FAILURE;
     try {
-      final String filter = StringUtils.isBlank(actorAuthority) ? null : actorAuthority;
       final DelegationPolicyList result = policyService.list(filter);
       final DelegationPolicyListResponse body = new DelegationPolicyListResponse();
       body.setPolicies(result.getPolicies().stream().map(DelegationPolicyResource::toResponse).collect(Collectors.toList()));
       body.setHasMore(result.hasMore());
+      outcome = ActionOutcome.SUCCESS;
       return Response.ok(writeJson(body)).build();
     } catch (RuntimeException e) {
       return errorResponse(Response.Status.INTERNAL_SERVER_ERROR, "storage_error", "Failed to list delegation policies");
+    } finally {
+      final String operatorId = getOperatorId();
+      auditor.audit(Action.ACCESS, filter != null ? filter : "ALL", ResourceType.DELEGATION_POLICY,
+          outcome, "event_type=policy_listed performed_by=" + auditLabel(operatorId));
     }
   }
 
   @GET
   @Path("/{registrationId}")
   public Response getOne(@PathParam("registrationId") String registrationId) {
+    String outcome = ActionOutcome.FAILURE;
     try {
       final Optional<DelegationPolicy> found = policyService.get(registrationId);
       if (!found.isPresent()) {
         return errorResponse(Response.Status.NOT_FOUND, "policy_not_found", "Delegation policy not found: " + registrationId);
       }
+      outcome = ActionOutcome.SUCCESS;
       return Response.ok(writeJson(toResponse(found.get()))).build();
     } catch (RuntimeException e) {
       return errorResponse(Response.Status.INTERNAL_SERVER_ERROR, "storage_error", "Failed to read delegation policy");
+    } finally {
+      final String operatorId = getOperatorId();
+      auditor.audit(Action.ACCESS, registrationId, ResourceType.DELEGATION_POLICY,
+          outcome, "event_type=policy_read performed_by=" + auditLabel(operatorId));
     }
   }
 

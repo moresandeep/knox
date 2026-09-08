@@ -22,7 +22,6 @@ import org.apache.knox.gateway.audit.api.Action;
 import org.apache.knox.gateway.audit.api.ActionOutcome;
 import org.apache.knox.gateway.audit.api.Auditor;
 import org.apache.knox.gateway.audit.api.ResourceType;
-import org.apache.knox.gateway.config.GatewayConfig;
 import org.apache.knox.gateway.services.GatewayServices;
 import org.apache.knox.gateway.services.ServiceType;
 import org.apache.knox.gateway.services.knoxidf.delegation.DelegationPolicy;
@@ -63,8 +62,8 @@ public class DelegationPolicyResourceTest {
   private static final String ACTOR_ID = "svc-1";
   private static final String REGISTRATION_ID = "reg-123";
   private static final String OPERATOR = "admin";
-  private static final int MIN_TTL = GatewayConfig.DELEGATION_SERVICE_MIN_TOKEN_TTL_SEC_DEFAULT;
-  private static final int MAX_TTL = GatewayConfig.DELEGATION_SERVICE_MAX_TOKEN_TTL_SEC_DEFAULT;
+  private static final int MIN_TTL = DelegationPolicyResource.DEFAULT_MIN_TOKEN_TTL_SEC;
+  private static final int MAX_TTL = DelegationPolicyResource.DEFAULT_MAX_TOKEN_TTL_SEC;
 
   private static final ObjectMapper MAPPER = new ObjectMapper().registerModule(new JavaTimeModule());
   private static final String ISO_INSTANT_PATTERN =
@@ -775,6 +774,7 @@ public class DelegationPolicyResourceTest {
     EasyMock.expect(mockService.list(null))
         .andReturn(new DelegationPolicyList(Collections.singletonList(existingPolicy(REGISTRATION_ID, Instant.now())), false))
         .once();
+    expectReadAudit("ALL", ActionOutcome.SUCCESS, "policy_listed");
     EasyMock.replay(mockService, mockAuditor);
 
     final Response response = resource.list(null);
@@ -791,6 +791,7 @@ public class DelegationPolicyResourceTest {
     EasyMock.expect(mockService.list(ACTOR_AUTHORITY))
         .andReturn(new DelegationPolicyList(Collections.emptyList(), false))
         .once();
+    expectReadAudit(ACTOR_AUTHORITY, ActionOutcome.SUCCESS, "policy_listed");
     EasyMock.replay(mockService, mockAuditor);
 
     resource.list(ACTOR_AUTHORITY);
@@ -803,6 +804,7 @@ public class DelegationPolicyResourceTest {
     EasyMock.expect(mockService.list(null))
         .andReturn(new DelegationPolicyList(Collections.emptyList(), false))
         .once();
+    expectReadAudit("ALL", ActionOutcome.SUCCESS, "policy_listed");
     EasyMock.replay(mockService, mockAuditor);
 
     resource.list("");
@@ -815,6 +817,7 @@ public class DelegationPolicyResourceTest {
     EasyMock.expect(mockService.list(null))
         .andReturn(new DelegationPolicyList(Collections.emptyList(), false))
         .once();
+    expectReadAudit("ALL", ActionOutcome.SUCCESS, "policy_listed");
     EasyMock.replay(mockService, mockAuditor);
 
     final Response response = resource.list(null);
@@ -831,6 +834,7 @@ public class DelegationPolicyResourceTest {
     EasyMock.expect(mockService.list(null))
         .andReturn(new DelegationPolicyList(Collections.emptyList(), true))
         .once();
+    expectReadAudit("ALL", ActionOutcome.SUCCESS, "policy_listed");
     EasyMock.replay(mockService, mockAuditor);
 
     final DelegationPolicyListResponse body = parseListResponse(resource.list(null));
@@ -842,6 +846,7 @@ public class DelegationPolicyResourceTest {
   @Test
   public void testListStorageFailure() {
     EasyMock.expect(mockService.list(null)).andThrow(new RuntimeException("DB error")).once();
+    expectReadAudit("ALL", ActionOutcome.FAILURE, "policy_listed");
     EasyMock.replay(mockService, mockAuditor);
 
     final Response response = resource.list(null);
@@ -859,6 +864,7 @@ public class DelegationPolicyResourceTest {
   public void testGetOneFound() throws Exception {
     final DelegationPolicy stored = existingPolicy(REGISTRATION_ID, Instant.now());
     EasyMock.expect(mockService.get(REGISTRATION_ID)).andReturn(Optional.of(stored)).once();
+    expectReadAudit(REGISTRATION_ID, ActionOutcome.SUCCESS, "policy_read");
     EasyMock.replay(mockService, mockAuditor);
 
     final Response response = resource.getOne(REGISTRATION_ID);
@@ -871,6 +877,7 @@ public class DelegationPolicyResourceTest {
   @Test
   public void testGetOneNotFound() {
     EasyMock.expect(mockService.get(REGISTRATION_ID)).andReturn(Optional.empty()).once();
+    expectReadAudit(REGISTRATION_ID, ActionOutcome.FAILURE, "policy_read");
     EasyMock.replay(mockService, mockAuditor);
 
     final Response response = resource.getOne(REGISTRATION_ID);
@@ -883,6 +890,7 @@ public class DelegationPolicyResourceTest {
   @Test
   public void testGetOneStorageFailure() {
     EasyMock.expect(mockService.get(REGISTRATION_ID)).andThrow(new RuntimeException("DB error")).once();
+    expectReadAudit(REGISTRATION_ID, ActionOutcome.FAILURE, "policy_read");
     EasyMock.replay(mockService, mockAuditor);
 
     final Response response = resource.getOne(REGISTRATION_ID);
@@ -1178,6 +1186,7 @@ public class DelegationPolicyResourceTest {
   @Test
   public void testInitWiresServiceFromGatewayServices() throws Exception {
     final DelegationPolicyService svc = EasyMock.createNiceMock(DelegationPolicyService.class);
+    EasyMock.expect(svc.getConfiguredTokenTtlSec()).andReturn(3600).anyTimes();
     EasyMock.replay(svc);
 
     final GatewayServices gws = EasyMock.createNiceMock(GatewayServices.class);
@@ -1186,7 +1195,6 @@ public class DelegationPolicyResourceTest {
 
     final ServletContext ctx = EasyMock.createNiceMock(ServletContext.class);
     EasyMock.expect(ctx.getAttribute(GatewayServices.GATEWAY_SERVICES_ATTRIBUTE)).andReturn(gws).once();
-    EasyMock.expect(ctx.getAttribute(GatewayConfig.GATEWAY_CONFIG_ATTRIBUTE)).andReturn(null).once();
     EasyMock.replay(ctx);
 
     final DelegationPolicyResource res = new DelegationPolicyResource();
@@ -1194,38 +1202,65 @@ public class DelegationPolicyResourceTest {
     injectField(res, "request", buildRequest(buildPrincipal(OPERATOR)));
     res.init();
 
+    // No init-params configured -> code-constant defaults apply.
     assertEquals(MIN_TTL, ((Number) readField(res, "minTokenTtlSec")).intValue());
     assertEquals(MAX_TTL, ((Number) readField(res, "maxTokenTtlSec")).intValue());
     EasyMock.verify(gws, ctx);
   }
 
   @Test
-  public void testInitWiresTokenTtlBoundsFromGatewayConfig() throws Exception {
+  public void testInitReadsTokenTtlBoundsFromInitParams() throws Exception {
+    final DelegationPolicyResource res = initResourceWithBounds("120", "7200");
+    assertEquals(120, ((Number) readField(res, "minTokenTtlSec")).intValue());
+    assertEquals(7200, ((Number) readField(res, "maxTokenTtlSec")).intValue());
+  }
+
+  @Test(expected = IllegalStateException.class)
+  public void testInitRejectsNonNumericBound() throws Exception {
+      initResourceWithBounds("not-a-number", null);
+  }
+
+  @Test(expected = IllegalStateException.class)
+  public void testInitRejectsNonPositiveBound() throws Exception {
+      initResourceWithBounds("0", null);
+  }
+
+  @Test(expected = IllegalStateException.class)
+  public void testInitRejectsMinGreaterThanMax() throws Exception {
+      initResourceWithBounds("7200", "120");
+  }
+
+  @Test(expected = IllegalStateException.class)
+  public void testInitRejectsConfiguredDefaultOutsideBounds() throws Exception {
+    // Default bounds are [60, 86400]; a gateway-wide default above max would let policies without
+    // an explicit tokenTtlSec yield an out-of-range effective TTL, so init() must fail fast.
+    initResource(null, null, 100000);
+  }
+
+  private DelegationPolicyResource initResourceWithBounds(String min, String max) throws Exception {
+    return initResource(min, max, 3600);
+  }
+
+  private DelegationPolicyResource initResource(String min, String max, int configuredDefault) throws Exception {
     final DelegationPolicyService svc = EasyMock.createNiceMock(DelegationPolicyService.class);
+    EasyMock.expect(svc.getConfiguredTokenTtlSec()).andReturn(configuredDefault).anyTimes();
     EasyMock.replay(svc);
 
     final GatewayServices gws = EasyMock.createNiceMock(GatewayServices.class);
-    EasyMock.expect(gws.getService(ServiceType.DELEGATION_POLICY_SERVICE)).andReturn(svc).once();
+    EasyMock.expect(gws.getService(ServiceType.DELEGATION_POLICY_SERVICE)).andReturn(svc).anyTimes();
     EasyMock.replay(gws);
 
-    final GatewayConfig config = EasyMock.createNiceMock(GatewayConfig.class);
-    EasyMock.expect(config.getDelegationServiceMinTokenTtlSec()).andReturn(120).once();
-    EasyMock.expect(config.getDelegationServiceMaxTokenTtlSec()).andReturn(7200).once();
-    EasyMock.replay(config);
-
     final ServletContext ctx = EasyMock.createNiceMock(ServletContext.class);
-    EasyMock.expect(ctx.getAttribute(GatewayServices.GATEWAY_SERVICES_ATTRIBUTE)).andReturn(gws).once();
-    EasyMock.expect(ctx.getAttribute(GatewayConfig.GATEWAY_CONFIG_ATTRIBUTE)).andReturn(config).once();
+    EasyMock.expect(ctx.getAttribute(GatewayServices.GATEWAY_SERVICES_ATTRIBUTE)).andReturn(gws).anyTimes();
+    EasyMock.expect(ctx.getInitParameter(DelegationPolicyResource.MIN_TOKEN_TTL_SEC_PARAM)).andReturn(min).anyTimes();
+    EasyMock.expect(ctx.getInitParameter(DelegationPolicyResource.MAX_TOKEN_TTL_SEC_PARAM)).andReturn(max).anyTimes();
     EasyMock.replay(ctx);
 
     final DelegationPolicyResource res = new DelegationPolicyResource();
     injectField(res, "servletContext", ctx);
     injectField(res, "request", buildRequest(buildPrincipal(OPERATOR)));
     res.init();
-
-    assertEquals(120, ((Number) readField(res, "minTokenTtlSec")).intValue());
-    assertEquals(7200, ((Number) readField(res, "maxTokenTtlSec")).intValue());
-    EasyMock.verify(gws, ctx, config);
+    return res;
   }
 
   // ---------------------------------------------------------------------------
@@ -1257,12 +1292,20 @@ public class DelegationPolicyResourceTest {
   }
 
   private void expectAudit(String registrationId, String outcome, String eventType) {
+    expectAudit(Action.DELEGATION_LIFECYCLE, registrationId, outcome, eventType);
+  }
+
+  private void expectReadAudit(String id, String outcome, String eventType) {
+    expectAudit(Action.ACCESS, id, outcome, eventType);
+  }
+
+  private void expectAudit(String action, String registrationId, String outcome, String eventType) {
     mockAuditor.audit(
-        EasyMock.eq(Action.DELEGATION_LIFECYCLE),
-        EasyMock.eq(registrationId),
-        EasyMock.eq(ResourceType.DELEGATION_POLICY),
-        EasyMock.eq(outcome),
-        EasyMock.contains(eventType));
+            EasyMock.eq(action),
+            EasyMock.eq(registrationId),
+            EasyMock.eq(ResourceType.DELEGATION_POLICY),
+            EasyMock.eq(outcome),
+            EasyMock.contains(eventType));
     EasyMock.expectLastCall().once();
   }
 
